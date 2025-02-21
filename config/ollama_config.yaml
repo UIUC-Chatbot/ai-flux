@@ -1,0 +1,30 @@
+# Ollama Configuration
+
+# Model Settings
+models:
+  qwen:
+    name: "qwen:7b"
+    parameters:
+      temperature: 0.7
+      top_p: 0.9
+      max_length: 2048
+    concurrency: 2
+
+# System Settings
+system:
+  gpu_layers: 35  # Adjust based on available GPU memory
+  max_concurrent_requests: 2
+  timeout: 300  # 5 minutes timeout for requests
+
+# Resource Management
+resources:
+  gpu_memory_utilization: 0.9  # Use 90% of available GPU memory
+  cpu_threads: 4
+
+# Logging Configuration
+logging:
+  level: "info"
+  file: "/var/log/ollama/server.log"
+  format: "json"
+  max_size: "100M"
+  max_files: 5 

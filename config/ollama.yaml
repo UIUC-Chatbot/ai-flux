@@ -1,0 +1,30 @@
+# Ollama Server Configuration
+
+server:
+  host: "0.0.0.0"  # Listen on all interfaces
+  port: null       # Will be dynamically assigned by pipeline
+  timeout: 300     # 5 minutes timeout for requests
+  origins: "*"     # Allow all origins
+  insecure: true   # Allow insecure connections
+
+system:
+  gpu_enabled: true
+  cuda_version: ">=12.0"
+  max_concurrent_requests: 2  # Default, overridden by model config
+
+resources:
+  gpu_memory_utilization: 0.9  # Use 90% of available GPU memory
+  cpu_threads: 4
+
+logging:
+  level: "info"
+  file: "/var/log/ollama/server.log"
+  format: "json"
+  max_size: "100M"
+  max_files: 5
+
+health_check:
+  endpoint: "/api/version"
+  interval: 5       # Check every 5 seconds
+  timeout: 2        # 2 second timeout for health check
+  max_retries: 60   # Try for 5 minutes (60 * 5 seconds) 

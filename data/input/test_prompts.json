@@ -1,0 +1,30 @@
+[
+    {
+        "prompt": "Explain the concept of quantum computing in simple terms.",
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 1024,
+        "stop": ["###"]
+    },
+    {
+        "prompt": "Write a Python function to implement quicksort algorithm.",
+        "temperature": 0.8,
+        "top_p": 0.9,
+        "max_tokens": 1024,
+        "stop": ["###"]
+    },
+    {
+        "prompt": "What are the key differences between transformers and RNNs in deep learning?",
+        "temperature": 0.7,
+        "top_p": 0.95,
+        "max_tokens": 1024,
+        "stop": ["###"]
+    },
+    {
+        "prompt": "Design a system architecture for a distributed machine learning pipeline.",
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_tokens": 1536,
+        "stop": ["###"]
+    }
+] 

@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm_runner"
+version = "0.1.0"
+description = "CLI tool for running LLM batch processing jobs on Delta"
+authors = [
+    {name = "NCSA", email = "help@ncsa.illinois.edu"}
+]
+requires-python = ">=3.8"
+dependencies = [
+    "requests>=2.31.0",
+    "tqdm>=4.66.1",
+    "jsonschema>=4.20.0",
+    "tenacity>=8.2.0",
+    "torch>=2.1.0",
+    "numpy>=1.24.0",
+    "pandas>=2.1.0",
+    "pyyaml>=6.0.1"
+]
+
+[project.scripts]
+llm-run = "llm_runner.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"llm_runner" = [
+    "templates/model_configs/*.env",
+    "config/*.def",
+    "config/*.yaml",
+    "scripts/*.sh"
+] 
