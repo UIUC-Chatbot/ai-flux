@@ -2,9 +2,9 @@
 name: "qwen2.5:72b"
 
 resources:
-  gpu_layers: 70
+  gpu_layers: 80
   gpu_memory: "40GB"
-  batch_size: 4
+  batch_size: 2
   max_concurrent: 1
 
 parameters:
@@ -19,7 +19,7 @@ system:
 validation:
   temperature_range: [0.0, 1.0]
   max_tokens_limit: 4096
-  batch_size_range: [1, 8]
+  batch_size_range: [1, 4]
   concurrent_range: [1, 2]
 
 # Resource Requirements
