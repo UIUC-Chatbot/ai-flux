@@ -66,7 +66,7 @@ class SlurmConfig(BaseModel):
     """SLURM configuration with env var support."""
     account: str = Field(default_factory=lambda: os.getenv('SLURM_ACCOUNT'))
     partition: str = Field(
-        default_factory=lambda: os.getenv('SLURM_PARTITION', 'gpuA100x4')
+        default_factory=lambda: os.getenv('SLURM_PARTITION', 'a100')
     )
     nodes: int = Field(
         default_factory=lambda: int(os.getenv('SLURM_NODES', '1'))
@@ -97,6 +97,63 @@ class Config:
     def __init__(self):
         self.package_dir = Path(__file__).parent.parent
         self.templates_dir = self.package_dir / 'templates'
+        
+        # Load environment variables from .env file if it exists
+        self._load_env_file()
+    
+    def _load_env_file(self):
+        """Load environment variables from .env file in project root."""
+        # Try to find .env file in current directory or parent directories
+        current_dir = Path.cwd()
+        env_file = current_dir / '.env'
+        
+        # Check up to 3 parent directories
+        for _ in range(3):
+            if env_file.exists():
+                self._load_env_from_file(env_file)
+                return
+            
+            # Move up one directory
+            parent_dir = current_dir.parent
+            if parent_dir == current_dir:  # Reached root directory
+                break
+            current_dir = parent_dir
+            env_file = current_dir / '.env'
+    
+    def _load_env_from_file(self, env_file: Path):
+        """Load environment variables from the specified .env file.
+        
+        Environment variables are loaded with the following precedence:
+        1. Existing environment variables (highest priority)
+        2. Variables from .env file (middle priority)
+        3. Default values (lowest priority)
+        """
+        try:
+            with open(env_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    # Skip empty lines and comments
+                    if not line or line.startswith('#'):
+                        continue
+                    
+                    # Parse key-value pairs
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        
+                        # Remove inline comments if present
+                        if '#' in value:
+                            value = value.split('#', 1)[0].strip()
+                        
+                        # Only set if not already in environment and value is not empty
+                        if key and value and key not in os.environ:
+                            os.environ[key] = value
+        except Exception as e:
+            # Log the error but continue execution
+            import logging
+            logging.warning(f"Error loading .env file: {str(e)}")
+            pass
     
     def load_model_config(
         self,
