@@ -12,7 +12,7 @@ def process_json_batch():
     """Example of processing a JSON batch file."""
     # Load model configuration
     config = Config()
-    model_config = config.load_model_config('qwen', '7b')
+    model_config = config.load_model_config('qwen2.5', '7b')
     
     # Initialize processor with JSON handler
     processor = BatchProcessor(
@@ -40,7 +40,7 @@ def process_csv_data():
     """Example of processing a CSV file."""
     # Load model configuration
     config = Config()
-    model_config = config.load_model_config('llama', '7b')
+    model_config = config.load_model_config('llama3.2', '7b')
     
     # Initialize processor with CSV handler
     processor = BatchProcessor(
