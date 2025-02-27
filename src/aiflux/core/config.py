@@ -100,6 +100,35 @@ class Config:
         
         # Load environment variables from .env file if it exists
         self._load_env_file()
+        
+        # Initialize workspace paths
+        self.workspace = Path.cwd()
+        
+        # Define default paths
+        self.default_paths = {
+            'DATA_INPUT_DIR': self.workspace / "data" / "input",
+            'DATA_OUTPUT_DIR': self.workspace / "data" / "output",
+            'MODELS_DIR': self.workspace / "models",
+            'LOGS_DIR': self.workspace / "logs",
+            'CONTAINERS_DIR': self.workspace / "containers",
+            'APPTAINER_TMPDIR': self.workspace / "tmp",
+            'APPTAINER_CACHEDIR': self.workspace / "tmp" / "cache",
+            'OLLAMA_HOME': self.workspace / ".ollama",
+        }
+        
+        # Define default settings
+        self.default_settings = {
+            'SLURM_PARTITION': 'a100',
+            'SLURM_NODES': '1',
+            'SLURM_GPUS_PER_NODE': '1',
+            'SLURM_TIME': '00:30:00',
+            'SLURM_MEM': '32G',
+            'SLURM_CPUS_PER_TASK': '4',
+            'OLLAMA_ORIGINS': '*',
+            'OLLAMA_INSECURE': 'true',
+            'CURL_CA_BUNDLE': '',
+            'SSL_CERT_FILE': '',
+        }
     
     def _load_env_file(self):
         """Load environment variables from .env file in project root."""
@@ -154,6 +183,126 @@ class Config:
             import logging
             logging.warning(f"Error loading .env file: {str(e)}")
             pass
+    
+    def get_path(self, path_name: str, code_path: Optional[Union[str, Path]] = None) -> Path:
+        """Get a resolved path following precedence: code path > env var > default.
+        
+        Args:
+            path_name: Name of the path (e.g., 'DATA_INPUT_DIR')
+            code_path: Optional explicit path from code
+            
+        Returns:
+            Resolved Path object
+        """
+        # 1. Code path (highest priority)
+        if code_path is not None:
+            return Path(code_path)
+        
+        # 2. Environment variable (middle priority)
+        if path_name in os.environ and os.environ[path_name]:
+            return Path(os.environ[path_name])
+        
+        # 3. Default value (lowest priority)
+        if path_name in self.default_paths:
+            return self.default_paths[path_name]
+        
+        # Fallback to workspace if no match
+        return self.workspace / path_name.lower()
+    
+    def get_setting(self, setting_name: str, code_value: Optional[Any] = None) -> Any:
+        """Get a resolved setting following precedence: code value > env var > default.
+        
+        Args:
+            setting_name: Name of the setting (e.g., 'SLURM_PARTITION')
+            code_value: Optional explicit value from code
+            
+        Returns:
+            Resolved setting value
+        """
+        # 1. Code value (highest priority)
+        if code_value is not None:
+            return code_value
+        
+        # 2. Environment variable (middle priority)
+        if setting_name in os.environ and os.environ[setting_name]:
+            return os.environ[setting_name]
+        
+        # 3. Default value (lowest priority)
+        if setting_name in self.default_settings:
+            return self.default_settings[setting_name]
+        
+        # Return None if no match
+        return None
+    
+    def ensure_directory(self, path: Path) -> Path:
+        """Ensure a directory exists.
+        
+        Args:
+            path: Path to ensure
+            
+        Returns:
+            The same path
+        """
+        if path.is_dir():
+            path.mkdir(parents=True, exist_ok=True)
+        else:
+            path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+    
+    def get_environment(self, overrides: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+        """Get a complete environment dictionary with all settings.
+        
+        Args:
+            overrides: Optional dictionary of override values
+            
+        Returns:
+            Dictionary of environment variables
+        """
+        # Start with current environment
+        env = os.environ.copy()
+        
+        # Add all paths
+        for path_name in self.default_paths:
+            code_path = overrides.get(path_name) if overrides else None
+            env[path_name] = str(self.get_path(path_name, code_path))
+        
+        # Add all settings
+        for setting_name in self.default_settings:
+            code_value = overrides.get(setting_name) if overrides else None
+            env[setting_name] = str(self.get_setting(setting_name, code_value))
+        
+        # Add SLURM config
+        # Create a filtered dictionary with SLURM-specific overrides
+        slurm_overrides = {}
+        if overrides:
+            # Map SLURM_* keys to their corresponding field names in SlurmConfig
+            slurm_field_mapping = {
+                'SLURM_ACCOUNT': 'account',
+                'SLURM_PARTITION': 'partition',
+                'SLURM_NODES': 'nodes',
+                'SLURM_GPUS_PER_NODE': 'gpus_per_node',
+                'SLURM_TIME': 'time',
+                'SLURM_MEM': 'memory',
+                'SLURM_CPUS_PER_TASK': 'cpus_per_task'
+            }
+            
+            for env_key, field_name in slurm_field_mapping.items():
+                if env_key in overrides:
+                    slurm_overrides[field_name] = overrides[env_key]
+        
+        slurm_config = self.get_slurm_config(slurm_overrides)
+        env.update({
+            'SLURM_ACCOUNT': slurm_config.account,
+            'SLURM_PARTITION': slurm_config.partition,
+            'SLURM_NODES': str(slurm_config.nodes),
+            'SLURM_GPUS_PER_NODE': str(slurm_config.gpus_per_node),
+            'SLURM_TIME': slurm_config.time,
+            'SLURM_MEM': slurm_config.memory,
+            'SLURM_CPUS_PER_TASK': str(slurm_config.cpus_per_task),
+        })
+        
+        # Filter out None values
+        return {k: v for k, v in env.items() if v is not None}
     
     def load_model_config(
         self,
