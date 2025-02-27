@@ -3,13 +3,13 @@ requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "llm_runner"
+name = "ai-flux"
 version = "0.1.0"
 description = "CLI tool for running LLM batch processing jobs on Delta"
 authors = [
-    {name = "NCSA", email = "help@ncsa.illinois.edu"}
+    {name = "Rohan Marwaha", email = "rohan13@illinois.edu"}
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
     "requests>=2.31.0",
     "tqdm>=4.66.1",
@@ -22,7 +22,7 @@ dependencies = [
 ]
 
 [project.scripts]
-llm-run = "llm_runner.cli:main"
+aiflux = "aiflux.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}
@@ -31,9 +31,8 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-"llm_runner" = [
-    "templates/model_configs/*.env",
-    "config/*.def",
-    "config/*.yaml",
-    "scripts/*.sh"
+"aiflux" = [
+    "templates/models/*/*.yaml",
+    "container/*.def",
+    "slurm/*.sh"
 ] 
