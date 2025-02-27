@@ -1,6 +1,7 @@
 """AI-Flux: LLM Batch Processing Pipeline for HPC Systems."""
 
 from .processors.batch import BatchProcessor
+from .processors.interactive import InteractiveProcessor
 from .slurm.runner import SlurmRunner
 from .core.config import Config, ModelConfig, SlurmConfig
 from .io.handlers import (
@@ -8,7 +9,8 @@ from .io.handlers import (
     JSONBatchHandler,
     CSVSinglePromptHandler,
     CSVMultiPromptHandler,
-    DirectoryHandler
+    DirectoryHandler,
+    InteractiveHandler
 )
 from .io.output import (
     OutputHandler,
@@ -19,6 +21,7 @@ from .io.output import (
 
 __all__ = [
     'BatchProcessor',
+    'InteractiveProcessor',
     'SlurmRunner',
     'Config',
     'ModelConfig',
@@ -28,6 +31,7 @@ __all__ = [
     'CSVSinglePromptHandler',
     'CSVMultiPromptHandler',
     'DirectoryHandler',
+    'InteractiveHandler',
     'OutputHandler',
     'JSONOutputHandler',
     'CSVOutputHandler',
