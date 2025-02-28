@@ -1,35 +1,32 @@
-# LLM Batch Processing Pipeline for HPC Systems
+# AI-Flux: LLM Batch Processing Pipeline for HPC Systems
 
 A streamlined solution for running Large Language Models (LLMs) in batch mode on HPC systems powered by Slurm. 
 
 ## Architecture
 
 ```
-Input JSON                         Batch Processing                    Output JSON
-(data/input/*.json)               (Ollama + Model)                   (data/output/)
+Input Data                        Batch Processing                    Output Data
+(Multiple Formats)               (Ollama + Model)                   (User Workspace)
      │                                   │                                 │
      │                                   │                                 │
      ▼                                   ▼                                 ▼
 [                                ┌──────────────┐                   [
-  {                              │              │                      {
-    "prompt": "...",       ────▶ │   Model on   │────▶                 "input": {...},
-    "temperature": 0.7           │    GPU(s)    │                      "output": "...",
-    "top_p": 0.9,                │              │                       "timestamp": ...
-    "max_tokens": 1024           └──────────────┘                     },
-  }                                                                 ...]
-]
+  • JSON Files                   │              │                      • JSON Results
+  • CSV Files              ────▶ │   Model on   │────▶                • CSV Results
+  • Text Files                   │    GPU(s)    │                     • Custom Formats
+  • Custom Input                 │              │                      
+]                                └──────────────┘                    ]
 ```
 
 ## Installation
 
 1. **Create and Activate Conda Environment:**
    ```bash
-   conda create -n llm_runner python=3.11 -y
-   conda activate llm_runner
+   conda create -n aiflux python=3.11 -y
+   conda activate aiflux
    ```
 
-2. **Install Dependencies:**
-   The project uses `pyproject.toml` for dependency management. Install using:
+2. **Install Package:**
    ```bash
    pip install -e .
    ```
@@ -42,65 +39,91 @@ Input JSON                         Batch Processing                    Output JS
 
 ## Quick Start
 
-1. **Prepare Input Data:**
-   Create JSON files in `data/input/` with your prompts. Each file should contain an array of prompt objects:
-   ```json
-   [
-     {
-       "prompt": "Explain quantum computing in simple terms.",
-       "temperature": 0.7,        # Controls randomness (optional)
-       "top_p": 0.9,             # Controls diversity (optional)
-       "max_tokens": 1024,       # Max response length (optional)
-       "stop": ["###"]           # Stop sequences (optional)
-     }
-   ]
+1. **Using Built-in Batch Processor:**
+   
+   a. With JSON input:
+   ```python
+   from aiflux import BatchProcessor, SlurmRunner
+   from aiflux.io import JSONBatchHandler
+
+   # Initialize processor
+   processor = BatchProcessor(
+       model="qwen:7b",
+       input_handler=JSONBatchHandler()
+   )
+
+   # Run on SLURM
+   runner = SlurmRunner(account="myaccount")
+   runner.run(processor, input_source="prompts.json")
    ```
 
-2. **Submit Job:**
-   ```bash
-   bash scripts/llm_pipeline.sh [model_type] [model_size] [account]
+   b. With CSV input:
+   ```python
+   from aiflux.io import CSVSinglePromptHandler
+
+   processor = BatchProcessor(
+       model="qwen:7b",
+       input_handler=CSVSinglePromptHandler(),
+       prompt_template="Analyze this text: {text}"
+   )
+   runner.run(processor, input_source="data.csv")
    ```
-   Example:
-   ```bash
-   bash scripts/llm_pipeline.sh qwen 7b acc_name
+
+2. **Using Custom Processor:**
+   ```python
+   from aiflux import BaseProcessor, SlurmRunner
+   
+   class MyProcessor(BaseProcessor):
+       def process_batch(self, batch):
+           # Your custom processing logic
+           pass
+
+   processor = MyProcessor(model="qwen:7b")
+   runner = SlurmRunner(account="myaccount")
+   runner.run(processor, input_source="data/")
    ```
 
 ## Repository Structure
 
 ```
-.
-├── config/                # Configuration files
-│   ├── container.def     # Apptainer container definition
-│   └── models/           # Model-specific YAML configs
-│       ├── qwen/         # Qwen model configurations
-│       └── llama/        # Llama model configurations
-├── data/                 # Data directories
-│   ├── input/           # Place input JSON files here
-│   └── output/          # Generated outputs with timestamps
-├── logs/                # SLURM and processing logs
-├── models/              # Downloaded model cache
-├── scripts/             # SLURM and utility scripts
-│   ├── llm_pipeline.sh  # Main job submission script
-│   └── run_llm.sh       # Job execution script
-├── src/                 # Python source code
-│   ├── batch_processor.py  # Batch processing implementation
-│   └── config_validator.py # Configuration validation
-├── pyproject.toml       # Project dependencies and metadata
-└── requirements.txt     # Direct dependency requirements
+aiflux/
+├── src/
+│   └── aiflux/                 
+│       ├── core/              
+│       │   ├── processor.py   # Base processor interface
+│       │   ├── config.py      # Configuration management
+│       │   └── client.py      # LLM client interface
+│       ├── processors/        # Built-in processors
+│       │   ├── batch.py       # Basic batch processor
+│       │   └── stream.py      # Streaming processor
+│       ├── io/               
+│       │   ├── handlers.py    # Input handlers
+│       │   └── output.py      # Output handlers
+│       ├── slurm/             # SLURM integration
+│       │   ├── runner.py      # SLURM job management
+│       │   └── scripts/       # SLURM scripts
+│       ├── templates/         # Model templates
+│       │   ├── llama/
+│       │   └── qwen/
+│       ├── container/         # Container management
+│       │   └── container.def  # Default container definition
+│       └── utils/            
+│           └── env.py         # Environment utilities
+├── examples/                  # Example implementations
+├── tests/                    
+└── pyproject.toml
 ```
 
 ## Available Models
 
-Model configurations in `config/models/`:
+Model configurations in `aiflux/templates/`:
 
 | Model | Config File | GPU Memory | Notes |
 |-------|-------------|------------|--------|
-| Qwen 2.5 7B | qwen.env | ~15GB | Default setup |
-| Qwen 2.5 72B | qwen.env | ~35GB | Requires A100 80GB |
-| Llama 3.2 7B | llama.env | ~13GB | Good for general use |
-| Llama 3.3 70B | llama.env | ~38GB | Requires A100 80GB |
-
-To use a different model, copy settings from `config/models/<model>.env` to your `.env` file.
+| Qwen 2.5 7B | qwen/7b.yaml | ~15GB | Default setup |
+| Qwen 2.5 72B | qwen/72b.yaml | ~35GB | Requires A100 80GB |
+| Llama 3.2 7B | llama/7b.yaml | ~13GB | Good for general use |
+| Llama 3.3 70B | llama/70b.yaml | ~38GB | Requires A100 80GB |
 
 ## Configuration
 
@@ -125,21 +148,19 @@ MAX_CONCURRENT_REQUESTS=2     # Parallel requests
 CPU_THREADS=4                 # CPU threads to use
 ```
 
-## Input Parameters
+## Input Handlers
 
-Each prompt in your input JSON can have these parameters:
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| prompt | string | (required) | The input text |
-| temperature | float | 0.7 | Randomness (0.0-1.0) |
-| top_p | float | 0.9 | Diversity (0.0-1.0) |
-| max_tokens | integer | 2048 | Max response length |
-| stop | string[] | null | Stop sequences |
+| Handler | Description | Input Format |
+|---------|-------------|--------------|
+| JSONBatchHandler | Process JSON files with multiple prompts | JSON array of prompt objects |
+| CSVSinglePromptHandler | Run same prompt on CSV rows | CSV with data to format prompt |
+| CSVMultiPromptHandler | Each CSV row has a prompt | CSV with prompt column |
+| DirectoryHandler | Process files in directory | Directory of files |
+| CustomHandler | User-defined processing | Any format |
 
 ## Output Format
 
-Results are saved in `data/output/batch_results_<timestamp>.json`:
+Results are saved in the user's workspace:
 ```json
 [
   {
@@ -155,6 +176,35 @@ Results are saved in `data/output/batch_results_<timestamp>.json`:
 ]
 ```
 
+## Input/Output Path Handling
+
+The system handles input and output paths with the following precedence:
+
+1. **User-Specified Paths (Highest Priority)**
+   ```python
+   runner.run(
+       processor,
+       input_source='data/prompts.json',
+       output_path='results/batch_results.json'
+   )
+   ```
+   If paths are specified in code, they take precedence over environment variables.
+
+2. **Environment Variables (Middle Priority)**
+   ```bash
+   # In .env file
+   DATA_INPUT_DIR=/path/to/input
+   DATA_OUTPUT_DIR=/path/to/output
+   ```
+   Used if no paths are specified in code.
+
+3. **Default Paths (Lowest Priority)**
+   ```
+   data/input/  # Default input directory
+   data/output/ # Default output directory
+   ```
+   Used if neither code paths nor environment variables are set.
+
 ## License
 
-[MIT License](LICENSE)
+[MIT License](LICENSE) 
