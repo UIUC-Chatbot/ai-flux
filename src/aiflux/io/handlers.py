@@ -86,12 +86,15 @@ class CSVSinglePromptHandler(InputHandler):
             Formatted prompts for each row
         """
         try:
+            #logger.info(f"Processing {input_source} with template: {prompt_template}")
             df = pd.read_csv(input_source)
             
             for _, row in df.iterrows():
                 # Format prompt template with row data
+                logger.info(f"Row: {row}")
                 try:
                     prompt = prompt_template.format(**row.to_dict())
+                    logger.info(f"Prompt in CSVSinglePromptHandler: {prompt}")
                     yield {
                         "prompt": prompt,
                         **kwargs
