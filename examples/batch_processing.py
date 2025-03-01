@@ -42,6 +42,18 @@ def process_csv_data():
     config = Config()
     model_config = config.load_model_config('llama3.2', '7b')
     
+    # Define prompt template
+    prompt_template = (
+        "Please summarize the following research paper:\n\n"
+        "Title: {title}\n"
+        "Abstract: {abstract}\n\n"
+        "Provide a concise summary focusing on:\n"
+        "1. Main research question\n"
+        "2. Key methodology\n"
+        "3. Main findings\n"
+        "4. Significance of results"
+    )
+    
     # Initialize processor with CSV handler
     processor = BatchProcessor(
         model_config=model_config,
@@ -62,16 +74,7 @@ def process_csv_data():
         processor,
         input_source='data/papers.csv',
         output_path='results/paper_summaries.json',
-        prompt_template=(
-            "Please summarize the following research paper:\n\n"
-            "Title: {title}\n"
-            "Abstract: {abstract}\n\n"
-            "Provide a concise summary focusing on:\n"
-            "1. Main research question\n"
-            "2. Key methodology\n"
-            "3. Main findings\n"
-            "4. Significance of results"
-        )
+        prompt_template=prompt_template  # Pass template directly as kwarg
     )
 
 if __name__ == '__main__':

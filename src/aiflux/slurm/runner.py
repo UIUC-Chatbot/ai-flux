@@ -181,11 +181,10 @@ class SlurmRunner:
         
         # Add prompt_template to environment if provided
         if 'prompt_template' in kwargs:
-            logger.info(f"Adding prompt_template to environment: {kwargs['prompt_template']}")
-            env['PROMPT_TEMPLATE'] = kwargs['prompt_template']
+            env['PROMPT_TEMPLATE'] = str(kwargs['prompt_template'])
         
         #logger.info(f"Environment: {env}") 
-        logger.info(f"Environment var prompt_template: {env['PROMPT_TEMPLATE']}")
+        # logger.info(f"Environment var prompt_template: {env['PROMPT_TEMPLATE']}")
         
         # Find available port
         port = self._find_available_port()
@@ -328,14 +327,7 @@ class SlurmRunner:
             "if handler_class_name == 'CSVSinglePromptHandler':",
             "    prompt_template = os.environ.get('PROMPT_TEMPLATE', '')",
             "    if prompt_template:",
-            "        try:",
-            "            # The template is already JSON encoded when added to env",
-            "            process_all_kwargs['prompt_template'] = prompt_template",
-            "            print(f'Loaded prompt template: {process_all_kwargs[\"prompt_template\"]}')",
-            "        except json.JSONDecodeError as e:",
-            "            print(f'Error decoding prompt template: {e}')",
-            "            print(f'Raw template: {prompt_template}')",
-            "            raise",
+            "        process_all_kwargs['prompt_template'] = prompt_template",
             "",
             "# Add any other kwargs from environment variables",
             f"for key in {json.dumps(list(kwargs.keys()))}:",
