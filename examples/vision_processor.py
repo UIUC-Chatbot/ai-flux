@@ -14,8 +14,7 @@ if parent_dir not in sys.path:
 
 from src.aiflux.core.config import ModelConfig, Config
 from src.aiflux.processors.batch import BatchProcessor
-from src.aiflux.io.vision import VisionHandler
-from src.aiflux.io.base import JSONOutputHandler
+from src.aiflux.io import VisionHandler, JSONOutputHandler
 from src.aiflux.runners.slurm import SlurmRunner
 
 def process_images_with_custom_prompts(image_dir: str, output_path: str, prompts_file: str):

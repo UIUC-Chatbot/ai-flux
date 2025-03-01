@@ -12,8 +12,7 @@ if parent_dir not in sys.path:
 
 from src.aiflux import BatchProcessor, SlurmRunner
 from src.aiflux.core.config import Config
-from src.aiflux.io import CSVMultiPromptHandler
-from src.aiflux.io.base import JSONOutputHandler
+from src.aiflux.io import CSVMultiPromptHandler, JSONOutputHandler
 
 def process_csv_multi_prompts():
     """Example of processing a CSV file with multiple prompts."""

@@ -12,8 +12,7 @@ if parent_dir not in sys.path:
 
 from src.aiflux import BatchProcessor, SlurmRunner
 from src.aiflux.core.config import Config
-from src.aiflux.io import DirectoryHandler
-from src.aiflux.io.base import JSONOutputHandler
+from src.aiflux.io import DirectoryHandler, JSONOutputHandler
 
 def process_directory():
     """Example of processing a directory of text files."""

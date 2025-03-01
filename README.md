@@ -134,10 +134,17 @@ aiflux/
 │       ├── processors/        # Built-in processors
 │       │   ├── batch.py       # Basic batch processor
 │       │   └── stream.py      # Streaming processor
-│       ├── io/               
-│       │   ├── handlers.py    # Input handlers
-│       │   ├── output.py      # Output handlers
-│       │   └── vision.py      # Vision handlers
+│       ├── io/                # Input/Output handling
+│       │   ├── base.py        # Base input/output classes
+│       │   ├── input/         # Input handlers
+│       │   │   ├── json_handler.py
+│       │   │   ├── csv_handler.py
+│       │   │   ├── directory_handler.py
+│       │   │   └── vision_handler.py
+│       │   └── output/        # Output handlers
+│       │       ├── json_output.py
+│       │       ├── csv_output.py
+│       │       └── timestamped_output.py
 │       ├── slurm/             # SLURM integration
 │       │   ├── runner.py      # SLURM job management
 │       │   └── scripts/       # SLURM scripts

@@ -3,7 +3,6 @@
 
 import abc
 from typing import Dict, Any, List, Iterator, Optional, Union
-import json
 from pathlib import Path
 
 
@@ -95,22 +94,4 @@ class OutputHandler(abc.ABC):
             results: List of results to save
             output_path: Path to save results to
         """
-        pass
-
-
-class JSONOutputHandler(OutputHandler):
-    """Handler for JSON output."""
-    
-    def save(self, results: List[OutputResult], output_path: str) -> None:
-        """Save results to JSON file.
-        
-        Args:
-            results: List of results to save
-            output_path: Path to save results to
-        """
-        output_file = Path(output_path)
-        output_file.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_file, 'w') as f:
-            results_data = [result.to_dict() for result in results]
-            json.dump(results_data, f, indent=2) 
+        pass 

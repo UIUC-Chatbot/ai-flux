@@ -12,8 +12,7 @@ if parent_dir not in sys.path:
 
 from src.aiflux import BatchProcessor, SlurmRunner
 from src.aiflux.core.config import Config
-from src.aiflux.io import CSVSinglePromptHandler
-from src.aiflux.io.base import JSONOutputHandler
+from src.aiflux.io import CSVSinglePromptHandler, JSONOutputHandler
 
 def process_csv_data():
     """Example of processing a CSV file."""

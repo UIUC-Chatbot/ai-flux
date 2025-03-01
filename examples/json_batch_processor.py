@@ -13,8 +13,7 @@ if parent_dir not in sys.path:
 
 from src.aiflux.core.config import ModelConfig, Config
 from src.aiflux.processors.batch import BatchProcessor
-from src.aiflux.io.handlers import JSONBatchHandler
-from src.aiflux.io.base import JSONOutputHandler
+from src.aiflux.io import JSONBatchHandler, JSONOutputHandler
 from src.aiflux.runners.slurm import SlurmRunner
 
 def process_json_batch(input_path: str, output_path: str):

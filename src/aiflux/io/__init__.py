@@ -1,28 +1,33 @@
 """Input/Output handlers for AI-Flux."""
 
-from .handlers import (
-    InputHandler,
+from .base import InputHandler, OutputHandler, OutputResult
+from .input import (
     JSONBatchHandler,
     CSVSinglePromptHandler,
     CSVMultiPromptHandler,
-    DirectoryHandler
+    DirectoryHandler,
+    VisionHandler
 )
 from .output import (
-    OutputHandler,
     JSONOutputHandler,
     CSVOutputHandler,
     TimestampedOutputHandler
 )
-from .vision import VisionHandler
 
 __all__ = [
+    # Base classes
     'InputHandler',
+    'OutputHandler',
+    'OutputResult',
+    
+    # Input handlers
     'JSONBatchHandler',
     'CSVSinglePromptHandler',
     'CSVMultiPromptHandler',
     'DirectoryHandler',
     'VisionHandler',
-    'OutputHandler',
+    
+    # Output handlers
     'JSONOutputHandler',
     'CSVOutputHandler',
     'TimestampedOutputHandler'
