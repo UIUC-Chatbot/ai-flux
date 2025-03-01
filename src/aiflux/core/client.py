@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
+"""OpenAI-compatible client for Ollama LLM service."""
+
 import os
 import logging
 import time
+import json
 from typing import Dict, Any, Optional, List
 import requests
 
@@ -13,7 +16,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 class LLMClient:
-    """Base class for LLM clients."""
+    """OpenAI-compatible client for LLM services."""
     
     def __init__(self, host: Optional[str] = None, port: Optional[int] = None):
         """Initialize LLM client.
@@ -28,18 +31,18 @@ class LLMClient:
         self.session = requests.Session()
     
     def list_models(self) -> List[str]:
-        """List available models.
+        """List available models using OpenAI-compatible endpoint.
         
         Returns:
             List of available model names
         """
-        url = f"{self.base_url}/api/tags"
+        url = f"{self.base_url}/v1/models"
         try:
             response = self.session.get(url)
             response.raise_for_status()
             
             data = response.json()
-            return [model['name'] for model in data.get('models', [])]
+            return [model['id'] for model in data.get('data', [])]
         except requests.exceptions.RequestException as e:
             logger.error(f"Error listing models: {e}")
             return []
@@ -57,6 +60,8 @@ class LLMClient:
     
     def pull_model(self, model_name: str) -> bool:
         """Pull a model if it doesn't exist.
+        
+        Note: This uses Ollama's native API since OpenAI doesn't have a pull endpoint.
         
         Args:
             model_name: Name of the model to pull
@@ -124,24 +129,25 @@ class LLMClient:
     def generate(
         self,
         model: str,
-        prompt: str,
-        system_prompt: Optional[str] = None,
+        messages: List[Dict[str, Any]],
         **kwargs
-    ) -> Dict[str, Any]:
-        """Generate response from the model.
+    ) -> str:
+        """Generate response using OpenAI-compatible chat completions endpoint.
         
         Args:
             model: Name of the model to use
-            prompt: Input prompt
-            system_prompt: Optional system prompt
-            **kwargs: Additional model parameters
+            messages: Array of messages in OpenAI format
+            **kwargs: Additional model parameters:
+                - temperature: float
+                - top_p: float
+                - max_tokens: int
+                - stop: List[str]
             
         Returns:
             Model response
             
         Raises:
             requests.exceptions.RequestException: If API call fails
-            json.JSONDecodeError: If response parsing fails
             ValueError: If model is not available
         """
         # Ensure model is available
@@ -150,34 +156,43 @@ class LLMClient:
             logger.error(error_msg)
             raise ValueError(error_msg)
         
-        url = f"{self.base_url}/api/generate"
+        url = f"{self.base_url}/v1/chat/completions"
         
-        # Format prompt with system prompt if provided
-        if system_prompt:
-            formatted_prompt = (
-                f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-                f"<|im_start|>user\n{prompt}<|im_end|>\n"
-                f"<|im_start|>assistant\n"
-            )
-        else:
-            formatted_prompt = prompt
-        
-        data = {
+        # Create payload in OpenAI format
+        payload = {
             "model": model,
-            "prompt": formatted_prompt,
-            "stream": False,  # Disable streaming for batch processing
-            **kwargs
+            "messages": messages,
+            "stream": False,
         }
         
+        # Add other parameters if provided
+        if "temperature" in kwargs:
+            payload["temperature"] = kwargs["temperature"]
+        if "top_p" in kwargs:
+            payload["top_p"] = kwargs["top_p"]
+        if "max_tokens" in kwargs:
+            payload["max_tokens"] = kwargs["max_tokens"]
+        if "stop" in kwargs and kwargs["stop"]:
+            payload["stop"] = kwargs["stop"]
+        
         try:
-            response = self.session.post(url, json=data)
+            response = self.session.post(url, json=payload)
             response.raise_for_status()
             
-            # Parse response
+            # Parse OpenAI response format
             response_data = response.json()
-            if isinstance(response_data, dict):
-                return response_data.get('response', '')
-            return str(response_data)
+            
+            # Extract the content from the response
+            if (
+                'choices' in response_data and 
+                len(response_data['choices']) > 0 and
+                'message' in response_data['choices'][0] and
+                'content' in response_data['choices'][0]['message']
+            ):
+                return response_data['choices'][0]['message']['content']
+            else:
+                logger.warning(f"Unexpected response format: {response_data}")
+                return ""
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Error generating response: {e}")

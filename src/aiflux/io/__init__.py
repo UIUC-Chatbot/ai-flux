@@ -13,6 +13,7 @@ from .output import (
     CSVOutputHandler,
     TimestampedOutputHandler
 )
+from .vision import VisionHandler
 
 __all__ = [
     'InputHandler',
@@ -20,6 +21,7 @@ __all__ = [
     'CSVSinglePromptHandler',
     'CSVMultiPromptHandler',
     'DirectoryHandler',
+    'VisionHandler',
     'OutputHandler',
     'JSONOutputHandler',
     'CSVOutputHandler',

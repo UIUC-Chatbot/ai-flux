@@ -175,3 +175,16 @@ backups/*
 
 # Cursor
 .cursor/rules/*
+
+# Logs
+logs/*
+
+# Containers
+containers/*
+
+# Results
+results/*
+
+# Data
+data/*
+
