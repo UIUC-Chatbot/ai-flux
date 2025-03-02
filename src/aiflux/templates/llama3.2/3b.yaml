@@ -1,4 +1,4 @@
-# Llama 7B Configuration
+# Llama 3.2 3B Configuration
 name: "llama3.2:3b"
 
 resources:
@@ -14,7 +14,7 @@ parameters:
   stop_sequences: ["###"]  # Default stop sequence from test_prompts.json
 
 system:
-  prompt: "You are Claude, an AI assistant created by Anthropic. You are direct, accurate, and helpful in your responses."
+  prompt: "You are a helpful AI assistant. You are direct, accurate, and helpful in your responses."
 
 validation:
   temperature_range: [0.0, 1.0]

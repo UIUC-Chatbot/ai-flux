@@ -14,7 +14,8 @@ if parent_dir not in sys.path:
 from src.aiflux.core.config import ModelConfig, Config
 from src.aiflux.processors.batch import BatchProcessor
 from src.aiflux.io import JSONBatchHandler, JSONOutputHandler
-from src.aiflux.runners.slurm import SlurmRunner
+from src.aiflux.slurm.runner import SlurmRunner
+from examples.utils import get_timestamped_filename, ensure_results_dir
 
 def process_json_batch(input_path: str, output_path: str):
     """Process JSON batch files.
@@ -25,7 +26,7 @@ def process_json_batch(input_path: str, output_path: str):
     """
     # Load model config
     config = Config()
-    model_config = config.get_model_config("llama3")
+    model_config = config.load_model_config("llama3.2", "3b")
     
     # Initialize batch processor with OpenAI-compatible client
     processor = BatchProcessor(
@@ -41,8 +42,14 @@ def process_json_batch(input_path: str, output_path: str):
     slurm_config.time = "01:00:00"  # 1 hour time limit
     
     # Run on SLURM
-    runner = SlurmRunner(processor, slurm_config)
-    runner.run(input_path=input_path, output_path=output_path)
+    runner = SlurmRunner(config=slurm_config)
+    runner.run(
+        processor=processor,
+        input_source=input_path,
+        output_path=output_path
+    )
+    
+    print(f"Results saved to: {output_path}")
 
 def create_example_json_data():
     """Create example JSON data for processing."""
@@ -86,9 +93,13 @@ def create_example_json_data():
     return str(data_dir / "prompts.json")
 
 if __name__ == "__main__":
+    # Ensure results directory exists
+    ensure_results_dir()
+    
     # Create example data
     input_file = create_example_json_data()
     
-    # Process JSON batch
-    output_file = "results/batch_results.json"
+    # Process JSON batch with timestamped output
+    output_file = get_timestamped_filename("results/batch_results.json")
+    print("Processing JSON batch...")
     process_json_batch(input_file, output_file) 

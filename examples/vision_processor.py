@@ -15,7 +15,8 @@ if parent_dir not in sys.path:
 from src.aiflux.core.config import ModelConfig, Config
 from src.aiflux.processors.batch import BatchProcessor
 from src.aiflux.io import VisionHandler, JSONOutputHandler
-from src.aiflux.runners.slurm import SlurmRunner
+from src.aiflux.slurm.runner import SlurmRunner
+from examples.utils import get_timestamped_filename, ensure_results_dir
 
 def process_images_with_custom_prompts(image_dir: str, output_path: str, prompts_file: str):
     """Process images using custom prompts for each image.
@@ -27,7 +28,7 @@ def process_images_with_custom_prompts(image_dir: str, output_path: str, prompts
     """
     # Load model config for vision
     config = Config()
-    model_config = config.get_model_config("llama3")
+    model_config = config.load_model_config("llama3.2-vision", "11b")
     
     # Initialize vision handler with custom prompts file
     processor = BatchProcessor(
@@ -40,13 +41,14 @@ def process_images_with_custom_prompts(image_dir: str, output_path: str, prompts
     # Setup SLURM configuration
     slurm_config = config.get_slurm_config()
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
-    slurm_config.partition = "gpuA100x4"
+    slurm_config.partition = os.getenv('SLURM_PARTITION', 'gpuA100x4')
     slurm_config.gpus_per_node = 1
     slurm_config.time = "01:00:00"  # 1 hour time limit
     
     # Run on SLURM
-    runner = SlurmRunner(processor, slurm_config)
-    runner.run(input_path=image_dir, output_path=output_path)
+    runner = SlurmRunner(config=slurm_config)
+    runner.run(processor=processor, input_source=image_dir, output_path=output_path)
+    print(f"Results saved to: {output_path}")
 
 def process_images_with_prompt_map(image_dir: str, output_path: str):
     """Process images using a prompt map passed directly to the handler.
@@ -57,7 +59,7 @@ def process_images_with_prompt_map(image_dir: str, output_path: str):
     """
     # Load model config for vision
     config = Config()
-    model_config = config.get_model_config("llama3")
+    model_config = config.load_model_config("llama3.2-vision", "11b")
     
     # Define custom prompts for each image
     prompts_map = {
@@ -81,18 +83,20 @@ def process_images_with_prompt_map(image_dir: str, output_path: str):
     # Setup SLURM configuration
     slurm_config = config.get_slurm_config()
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
-    slurm_config.partition = "gpuA100x4"
+    slurm_config.partition = "a100"
     slurm_config.gpus_per_node = 1
     slurm_config.time = "01:00:00"  # 1 hour time limit
     
     # Run on SLURM with custom prompts and system prompt passed as kwargs
-    runner = SlurmRunner(processor, slurm_config)
+    runner = SlurmRunner(config=slurm_config)
     runner.run(
-        input_path=image_dir, 
+        processor=processor,
+        input_source=image_dir, 
         output_path=output_path,
         prompts_map=prompts_map,
         system_prompt=system_prompt
     )
+    print(f"Results saved to: {output_path}")
 
 def download_sample_images():
     """Download sample images and create prompt files for vision processing.
@@ -108,9 +112,9 @@ def download_sample_images():
     
     # Sample images to download
     image_urls = [
-        "https://images.unsplash.com/photo-1597502616728-3a56bd0fe9c6",  # Cityscape
-        "https://images.unsplash.com/photo-1598128558393-70ff21433be0",  # Nature
-        "https://images.unsplash.com/photo-1622979135225-d2ba269cf1ac"   # Text
+        "https://images.unsplash.com/photo-1477959858617-67f85cf4f1df",  # Cityscape
+        "https://images.unsplash.com/photo-1501854140801-50d01698950b",  # Nature
+        "https://images.unsplash.com/photo-1585909695284-32d2985ac9c0"   # Text
     ]
     
     # Download images
@@ -150,16 +154,19 @@ def download_sample_images():
     return str(image_dir), str(prompts_file)
 
 if __name__ == "__main__":
+    # Ensure results directory exists
+    ensure_results_dir()
+    
     # Download sample images and create prompts file
     image_dir, prompts_file = download_sample_images()
     
     # Method 1: Process images with custom prompts from file
-    output_path1 = "results/vision_results_file_prompts.json"
+    output_path1 = get_timestamped_filename("results/vision_results_file_prompts.json")
     print(f"\nProcessing images with prompts from file...")
     process_images_with_custom_prompts(image_dir, output_path1, prompts_file)
     
     # Method 2: Process images with custom prompts passed as arguments
-    output_path2 = "results/vision_results_arg_prompts.json"
+    output_path2 = get_timestamped_filename("results/vision_results_arg_prompts.json")
     print(f"\nProcessing images with prompts passed as arguments...")
     process_images_with_prompt_map(image_dir, output_path2)
 

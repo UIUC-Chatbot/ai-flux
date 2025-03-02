@@ -4,6 +4,7 @@
 import os
 import sys
 import json
+import datetime
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -14,12 +15,13 @@ if parent_dir not in sys.path:
 from src.aiflux import BatchProcessor, SlurmRunner
 from src.aiflux.core.config import Config
 from src.aiflux.io import JSONBatchHandler, CSVSinglePromptHandler, JSONOutputHandler
+from examples.utils import get_timestamped_filename, ensure_results_dir
 
 def process_json_batch():
     """Example of processing a JSON batch file."""
     # Load model configuration
     config = Config()
-    model_config = config.get_model_config("qwen2.5")
+    model_config = config.load_model_config("qwen2.5", "7b")
     
     # Initialize processor with JSON handler
     processor = BatchProcessor(
@@ -34,18 +36,24 @@ def process_json_batch():
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
     slurm_config.time = "01:00:00"
     
+    # Create timestamped output path
+    output_path = get_timestamped_filename('results/batch_results.json')
+    
     # Run on SLURM
-    runner = SlurmRunner(processor, slurm_config)
+    runner = SlurmRunner(config=slurm_config)
     runner.run(
-        input_path='data/prompts.json',
-        output_path='results/batch_results.json'
+        processor=processor,
+        input_source='data/prompts.json',
+        output_path=output_path
     )
+    
+    print(f"Results saved to: {output_path}")
 
 def process_csv_data():
     """Example of processing a CSV file."""
     # Load model configuration
     config = Config()
-    model_config = config.get_model_config("llama3")
+    model_config = config.load_model_config("llama3.2", "11b")
     
     # Define prompt template
     prompt_template = (
@@ -75,19 +83,28 @@ def process_csv_data():
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
     slurm_config.time = "02:00:00"
     
+    # Create timestamped output path
+    output_path = get_timestamped_filename('results/paper_summaries.json')
+    
     # Run on SLURM with both template and system prompt
-    runner = SlurmRunner(processor, slurm_config)
+    runner = SlurmRunner(config=slurm_config)
     runner.run(
-        input_path='data/papers.csv',
-        output_path='results/paper_summaries.json',
+        processor=processor,
+        input_source='data/papers.csv',
+        output_path=output_path,
         prompt_template=prompt_template,
         system_prompt=system_prompt
     )
+    
+    print(f"Results saved to: {output_path}")
 
 if __name__ == '__main__':
-    # Create example data directory
+    # Create example data directory and results directory
     data_dir = Path('data')
     data_dir.mkdir(exist_ok=True)
+    
+    # Ensure results directory exists
+    ensure_results_dir()
     
     # Create example JSON input with OpenAI-compatible format
     json_input = """[

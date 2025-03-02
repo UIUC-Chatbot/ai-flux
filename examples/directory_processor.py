@@ -13,12 +13,13 @@ if parent_dir not in sys.path:
 from src.aiflux import BatchProcessor, SlurmRunner
 from src.aiflux.core.config import Config
 from src.aiflux.io import DirectoryHandler, JSONOutputHandler
+from examples.utils import get_timestamped_filename, ensure_results_dir
 
 def process_directory():
     """Example of processing a directory of text files."""
     # Load model configuration
     config = Config()
-    model_config = config.get_model_config("llama3")
+    model_config = config.load_model_config("llama3.2", "3b")
     
     # Define the prompt template for processing files
     prompt_template = (
@@ -47,15 +48,21 @@ def process_directory():
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
     slurm_config.time = "01:30:00"
     
-    # Process inputs with both prompt template and system prompt
-    runner = SlurmRunner(processor, slurm_config)
+    # Create timestamped output path
+    output_path = get_timestamped_filename('results/articles_analysis.json')
+    
+    # Run on SLURM
+    runner = SlurmRunner(config=slurm_config)
     runner.run(
-        input_path='data/articles/',
-        output_path='results/articles_analysis.json',
+        processor=processor,
+        input_source='data/articles/',
+        output_path=output_path,
+        file_pattern="*.txt",
         prompt_template=prompt_template,
-        system_prompt=system_prompt,
-        file_pattern="*.txt"  # Process only .txt files
+        system_prompt=system_prompt
     )
+    
+    print(f"Results saved to: {output_path}")
 
 def create_example_files():
     """Create example text files for directory processing."""
@@ -96,6 +103,9 @@ global action is necessary to address this complex challenge effectively.
     print("Example article files created in data/articles/")
 
 if __name__ == '__main__':
+    # Ensure results directory exists
+    ensure_results_dir()
+    
     create_example_files()
     print("Processing directory of text files...")
     process_directory()

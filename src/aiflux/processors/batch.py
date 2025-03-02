@@ -61,7 +61,7 @@ class BatchProcessor:
         self.client = LLMClient()
         
         # Check if model exists and warm it up
-        model = self.model_config.model
+        model = self.model_config.name
         logger.info(f"Warming up model: {model}")
         
         try:
@@ -94,7 +94,7 @@ class BatchProcessor:
             List of processed output results
         """
         results = []
-        model = self.model_config.model
+        model = self.model_config.name
         
         for item in batch:
             try:
@@ -108,7 +108,7 @@ class BatchProcessor:
                     temperature=item.get("temperature", self.model_config.parameters.temperature),
                     max_tokens=item.get("max_tokens", self.model_config.parameters.max_tokens),
                     top_p=item.get("top_p", self.model_config.parameters.top_p),
-                    stop=item.get("stop", self.model_config.parameters.stop),
+                    stop=item.get("stop", self.model_config.parameters.stop_sequences),
                 )
                 
                 # Create result

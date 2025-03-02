@@ -13,12 +13,13 @@ if parent_dir not in sys.path:
 from src.aiflux import BatchProcessor, SlurmRunner
 from src.aiflux.core.config import Config
 from src.aiflux.io import CSVMultiPromptHandler, JSONOutputHandler
+from examples.utils import get_timestamped_filename, ensure_results_dir
 
 def process_csv_multi_prompts():
     """Example of processing a CSV file with multiple prompts."""
     # Load model configuration
     config = Config()
-    model_config = config.get_model_config("qwen2.5")
+    model_config = config.load_model_config("qwen2.5", "7b")
     
     # Define a system prompt for all prompts in the CSV
     system_prompt = "You are an educational assistant trained to explain complex concepts simply and accurately."
@@ -36,13 +37,20 @@ def process_csv_multi_prompts():
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
     slurm_config.time = "01:00:00"
     
-    # Run on SLURM with system prompt
-    runner = SlurmRunner(processor, slurm_config)
+    # Create timestamped output path
+    output_path = get_timestamped_filename('results/multi_prompt_results.json')
+    
+    # Run on SLURM
+    runner = SlurmRunner(config=slurm_config)
     runner.run(
-        input_path='data/questions.csv',
-        output_path='results/multi_prompt_results.json',
+        processor=processor,
+        input_source='data/questions.csv',
+        output_path=output_path,
+        template_map={},
         system_prompt=system_prompt
     )
+    
+    print(f"Results saved to: {output_path}")
 
 def create_example_csv_data():
     """Create example CSV data for multi-prompt processing."""
@@ -64,6 +72,9 @@ def create_example_csv_data():
     print("Example CSV with multiple prompts created at data/questions.csv")
 
 if __name__ == '__main__':
+    # Ensure results directory exists
+    ensure_results_dir()
+    
     create_example_csv_data()
     print("Processing CSV with multiple prompts...")
     process_csv_multi_prompts()
