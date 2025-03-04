@@ -1,23 +1,24 @@
 # AI-Flux: LLM Batch Processing Pipeline for HPC Systems
 
-A streamlined solution for running Large Language Models (LLMs) in batch mode on HPC systems powered by Slurm. AI-Flux uses the OpenAI-compatible API format for all interactions.
+A streamlined solution for running Large Language Models (LLMs) in batch mode on HPC systems powered by Slurm. AI-Flux uses the OpenAI-compatible API format with a JSONL-first architecture for all interactions.
 
 ## Architecture
 
 ```
-Input Data                        Batch Processing                    Output Data
-(Multiple Formats)               (Ollama + Model)                   (User Workspace)
-     │                                   │                                 │
-     │                                   │                                 │
-     ▼                                   ▼                                 ▼
-[                                ┌──────────────┐                   [
-  • JSON Files                   │              │                      • JSON Results
-  • CSV Files              ────▶ │   Model on   │────▶                • CSV Results
-  • Text Files                   │    GPU(s)    │                     • Custom Formats
-  • Custom Input                 │              │                      
-  • Image Files                  └──────────────┘                    ]
-]                                
+      JSONL Input                    Batch Processing                    Results
+   (OpenAI Format)                  (Ollama + Model)                   (JSON Output)
+         │                                 │                                 │
+         │                                 │                                 │
+         ▼                                 ▼                                 ▼
+    ┌──────────┐                   ┌──────────────┐                   ┌──────────┐
+    │  Batch   │                   │              │                   │  Output  │
+    │ Requests │─────────────────▶ │   Model on   │─────────────────▶│  Results │
+    │  (JSONL) │                   │    GPU(s)    │                   │  (JSON)  │
+    └──────────┘                   │              │                   └──────────┘
+                                   └──────────────┘                    
 ```
+
+AI-Flux processes JSONL files in a standardized OpenAI-compatible batch API format, enabling efficient processing of thousands of prompts on HPC systems with minimal overhead.
 
 ## Installation
 
@@ -40,86 +41,65 @@ Input Data                        Batch Processing                    Output Dat
 
 ## Quick Start
 
-1. **Using Built-in Batch Processor:**
-   
-   a. With JSON input (using OpenAI format with messages array):
-   ```python
-   from aiflux import BatchProcessor, SlurmRunner
-   from aiflux.io import JSONBatchHandler
+### Core Batch Processing on SLURM
 
-   # Initialize processor
-   processor = BatchProcessor(
-       model="qwen2.5:7b",
-       input_handler=JSONBatchHandler()
-   )
+The primary workflow for AI-Flux is submitting JSONL files for batch processing on SLURM:
 
-   # Run on SLURM
-   runner = SlurmRunner(account="myaccount")
-   runner.run(processor, input_source="prompts.json")
-   ```
+```python
+from aiflux.slurm import SlurmRunner
+from aiflux.core.config import Config
 
-   Expected JSON format:
-   ```json
-   [
-     {
-       "messages": [
-         {"role": "system", "content": "You are a helpful assistant"},
-         {"role": "user", "content": "Explain quantum computing"}
-       ],
-       "temperature": 0.7,
-       "max_tokens": 500
-     }
-   ]
-   ```
+# Setup SLURM configuration
+config = Config()
+slurm_config = config.get_slurm_config()
+slurm_config.account = "myaccount"
 
-   b. With CSV input:
-   ```python
-   from aiflux.io import CSVSinglePromptHandler
+# Initialize runner
+runner = SlurmRunner(config=slurm_config)
 
-   processor = BatchProcessor(
-       model="llama3.2:7b",
-       input_handler=CSVSinglePromptHandler(),
-       prompt_template="Analyze this text: {text}"
-   )
-   runner.run(processor, input_source="data.csv", system_prompt="You are a text analysis expert")
-   ```
+# Submit JSONL file directly for processing
+job_id = runner.run(
+    input_path="prompts.jsonl",
+    output_path="results.json",
+    model="llama3.2:3b",
+    batch_size=4
+)
+print(f"Job submitted with ID: {job_id}")
+```
 
-   c. With image input (vision capabilities):
-   ```python
-   from aiflux.io import VisionHandler
-   
-   # Process images with a standard prompt
-   processor = BatchProcessor(
-       model="llama3.2:7b",
-       input_handler=VisionHandler(prompt_template="Describe this image in detail"),
-       batch_size=1  # Process one image at a time due to token limits
-   )
-   runner.run(processor, input_source="images/")
-   
-   # Or with custom prompts for each image
-   processor = BatchProcessor(
-       model="llama3.2:7b",
-       input_handler=VisionHandler(prompts_file="image_prompts.json"),
-       batch_size=1
-   )
-   runner.run(processor, input_source="images/")
-   ```
+JSONL input format follows the OpenAI Batch API specification:
+```jsonl
+{"custom_id":"request1","method":"POST","url":"/v1/chat/completions","body":{"model":"llama3.2:3b","messages":[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"Explain quantum computing"}],"temperature":0.7,"max_tokens":500}}
+{"custom_id":"request2","method":"POST","url":"/v1/chat/completions","body":{"model":"llama3.2:3b","messages":[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"What is machine learning?"}],"temperature":0.7,"max_tokens":500}}
+```
 
-2. **Using Custom Processor:**
-   ```python
-   from aiflux import BaseProcessor, SlurmRunner
-   
-   class MyProcessor(BaseProcessor):
-       def process_batch(self, batch):
-           # Your custom processing logic
-           pass
+### Alternative: Using BatchProcessor Directly
 
-   processor = MyProcessor(model="qwen2.5:7b")
-   runner = SlurmRunner(account="myaccount")
-   runner.run(processor, input_source="data/")
-   ```
+For more control, you can also use the BatchProcessor directly:
 
-For more detailed examples, see the [examples directory](examples/README.md).
+```python
+from aiflux import BatchProcessor, SlurmRunner
+from aiflux.core.config import Config
+
+# Initialize processor
+config = Config()
+model_config = config.load_model_config("llama3.2", "3b")
+
+processor = BatchProcessor(
+    model_config=model_config,
+    batch_size=4
+)
+
+# Run on SLURM
+runner = SlurmRunner(account="myaccount")
+runner.run(
+    processor=processor,
+    input_path="prompts.jsonl",
+    output_path="results.json"
+)
+```
+
+For more detailed examples, see the [examples directory](examples/).
 
 ## Repository Structure
 
@@ -130,24 +110,23 @@ aiflux/
 │       ├── core/              
 │       │   ├── processor.py   # Base processor interface
 │       │   ├── config.py      # Configuration management
+│       │   ├── config_manager.py # Configuration priority system
 │       │   └── client.py      # LLM client interface
 │       ├── processors/        # Built-in processors
-│       │   ├── batch.py       # Basic batch processor
-│       │   └── stream.py      # Streaming processor
-│       ├── io/                # Input/Output handling
-│       │   ├── base.py        # Base input/output classes
-│       │   ├── input/         # Input handlers
-│       │   │   ├── json_handler.py
-│       │   │   ├── csv_handler.py
-│       │   │   ├── directory_handler.py
-│       │   │   └── vision_handler.py
-│       │   └── output/        # Output handlers
-│       │       ├── json_output.py
-│       │       ├── csv_output.py
-│       │       └── timestamped_output.py
+│       │   └── batch.py       # JSONL batch processor
 │       ├── slurm/             # SLURM integration
 │       │   ├── runner.py      # SLURM job management
 │       │   └── scripts/       # SLURM scripts
+│       ├── converters/        # Format converters (utilities)
+│       │   ├── csv.py         # CSV to JSONL converter
+│       │   ├── json.py        # JSON to JSONL converter
+│       │   ├── directory.py   # Directory to JSONL converter
+│       │   ├── vision.py      # Vision to JSONL converter
+│       │   └── utils.py       # JSONL utilities
+│       ├── io/                # Input/Output handling
+│       │   ├── base.py        # Base output classes
+│       │   └── output/        # Output handlers
+│       │       └── json_output.py # JSON output handler
 │       ├── templates/         # Model templates
 │       │   ├── llama3.2/
 │       │   ├── llama3.3/
@@ -164,17 +143,8 @@ aiflux/
 AI-Flux includes a command-line interface for submitting batch processing jobs:
 
 ```bash
-# Basic usage
-aiflux run --model qwen2.5:7b --input data/prompts.json --output results/output.json
-
-# Specify SLURM account and resources
-aiflux run --model llama3.2:7b --input data/papers.csv --output results/summaries.json --account myaccount --time 02:00:00 --gpus 2
-
-# Run with a template for CSV data
-aiflux run --model qwen2.5:7b --input data/papers.csv --template "Summarize: {text}" --output results/
-
-# Process images with vision models
-aiflux run --model llama3.2:7b --input data/images/ --output results/image_analysis.json --vision --detail high
+# Process JSONL file directly (core functionality)
+aiflux run --model llama3.2:3b --input data/prompts.jsonl --output results/output.json
 ```
 
 For detailed command options:
@@ -207,7 +177,7 @@ SLURM_TIME=04:00:00          # Time limit
 SLURM_MEM=32G                # Memory per node
 
 # Model Selection
-MODEL_NAME=qwen2.5:7b         # Model to use
+MODEL_NAME=llama3.2:3b        # Model to use
 GPU_LAYERS=35                 # GPU layers to use
 BATCH_SIZE=8                  # Prompts per batch
 
@@ -216,17 +186,6 @@ MAX_CONCURRENT_REQUESTS=2     # Parallel requests
 CPU_THREADS=4                 # CPU threads to use
 ```
 
-## Input Handlers
-
-| Handler | Description | Input Format |
-|---------|-------------|--------------|
-| JSONBatchHandler | Process JSON files with multiple prompts | JSON array with OpenAI-compatible messages format |
-| CSVSinglePromptHandler | Run same prompt on CSV rows | CSV with data to format into OpenAI messages |
-| CSVMultiPromptHandler | Each CSV row has a prompt | CSV with prompt column converted to OpenAI messages |
-| DirectoryHandler | Process files in directory | Directory of files processed into OpenAI messages |
-| VisionHandler | Process images | Directory of images or single image with OpenAI vision format |
-| CustomHandler | User-defined processing | Any format converted to OpenAI messages |
-
 ## Output Format
 
 Results are saved in the user's workspace:
@@ -234,55 +193,102 @@ Results are saved in the user's workspace:
 [
   {
     "input": {
-      "messages": [
-        {"role": "system", "content": "You are a helpful assistant"},
-        {"role": "user", "content": "Original prompt text"}
-      ],
-      "temperature": 0.7,
-      "top_p": 0.9,
-      "max_tokens": 1024,
+      "custom_id": "request1",
+      "method": "POST",
+      "url": "/v1/chat/completions",
+      "body": {
+        "model": "llama3.2:3b",
+        "messages": [
+          {"role": "system", "content": "You are a helpful assistant"},
+          {"role": "user", "content": "Original prompt text"}
+        ],
+        "temperature": 0.7,
+        "max_tokens": 1024
+      },
       "metadata": {
-        "filename": "example.txt"
+        "source_file": "example.txt"
       }
     },
-    "output": "Generated response text",
+    "output": {
+      "id": "chat-cmpl-123",
+      "object": "chat.completion",
+      "created": 1699123456,
+      "model": "llama3.2:3b",
+      "choices": [
+        {
+          "index": 0,
+          "message": {
+            "role": "assistant",
+            "content": "Generated response text"
+          },
+          "finish_reason": "stop"
+        }
+      ]
+    },
     "metadata": {
-      "model": "llama3:7b",
-      "timestamp": 1234567890.123
+      "model": "llama3.2:3b",
+      "timestamp": "2023-11-04T12:34:56.789Z",
+      "processing_time": 1.23
     }
   }
 ]
 ```
 
-## Input/Output Path Handling
+## Utility Converters
 
-The system handles input and output paths with the following precedence:
+AI-Flux provides utility converters to help prepare JSONL files from various input formats:
 
-1. **User-Specified Paths (Highest Priority)**
-   ```python
-   runner.run(
-       processor,
-       input_source='data/prompts.json',
-       output_path='results/batch_results.json'
-   )
-   ```
-   If paths are specified in code, they take precedence over environment variables.
+### CSV to JSONL
+```python
+from aiflux.converters import csv_to_jsonl
 
-2. **Environment Variables (Middle Priority)**
-   ```bash
-   # In .env file
-   DATA_INPUT_DIR=/path/to/input
-   DATA_OUTPUT_DIR=/path/to/output
-   ```
-   Used if no paths are specified in code.
+result = csv_to_jsonl(
+    input_path="data.csv",
+    output_path="data.jsonl",
+    prompt_template="Analyze this text: {text}",
+    system_prompt="You are a text analysis expert",
+    model="llama3.2:3b"
+)
+```
 
-3. **Default Paths (Lowest Priority)**
-   ```
-   data/input/  # Default input directory
-   data/output/ # Default output directory
-   ```
-   Used if neither code paths nor environment variables are set.
+### JSON to JSONL
+```python
+from aiflux.converters import json_to_jsonl
+
+result = json_to_jsonl(
+    input_path="data.json",
+    output_path="data.jsonl"
+)
+```
+
+### Directory to JSONL
+```python
+from aiflux.converters import directory_to_jsonl
+
+result = directory_to_jsonl(
+    input_path="documents/",
+    output_path="documents.jsonl",
+    prompt_template="Summarize this document: {content}",
+    system_prompt="You are a document summarization specialist",
+    recursive=True,
+    extensions=['.txt', '.md']
+)
+```
+
+### CLI for Converters
+```bash
+# Convert CSV to JSONL
+aiflux convert csv --input data/papers.csv --output data/papers.jsonl --template "Summarize: {text}"
+
+# Convert directory to JSONL
+aiflux convert dir --input data/documents/ --output data/docs.jsonl --recursive
+```
+
+## Contributing
+
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
 [MIT License](LICENSE) 

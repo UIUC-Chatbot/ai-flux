@@ -25,30 +25,70 @@ class LLMClient:
             host: Optional host address
             port: Optional port number
         """
+        # Use OLLAMA_HOST env var if set, otherwise use provided host or default
         if host is None:
-            host = os.getenv('OLLAMA_HOST', 'localhost:11434')
-        self.base_url = f"http://{host}"
+            host = os.getenv('OLLAMA_HOST', None)
+            
+        # If OLLAMA_HOST contains a full URL, use it directly
+        if host and (host.startswith('http://') or host.startswith('https://')):
+            self.base_url = host
+        else:
+            # Otherwise construct URL from host and port
+            if host is None:
+                host = 'localhost'
+                
+            if port is None:
+                # Check if OLLAMA_PORT is set as an environment variable
+                port_str = os.getenv('OLLAMA_PORT', '11434')
+                try:
+                    port = int(port_str)
+                except ValueError:
+                    logger.warning(f"Invalid OLLAMA_PORT value: {port_str}, using default 11434")
+                    port = 11434
+            
+            self.base_url = f"http://{host}:{port}"
+        
+        logger.info(f"Connecting to Ollama at: {self.base_url}")
         self.session = requests.Session()
     
     def list_models(self) -> List[str]:
-        """List available models using OpenAI-compatible endpoint.
+        """List available models using Ollama's native tags API.
         
         Returns:
             List of available model names
         """
-        url = f"{self.base_url}/v1/models"
+        url = f"{self.base_url}/api/tags"
         try:
+            logger.debug(f"Listing models from: {url}")
             response = self.session.get(url)
             response.raise_for_status()
             
             data = response.json()
-            return [model['id'] for model in data.get('data', [])]
+            # Extract model names from the Ollama native API response
+            if 'models' in data:
+                return [model['name'] for model in data.get('models', [])]
+            else:
+                logger.error(f"Unexpected response format from API: {data}")
+                return []
+                
         except requests.exceptions.RequestException as e:
             logger.error(f"Error listing models: {e}")
             return []
+        except (KeyError, ValueError, TypeError) as e:
+            logger.error(f"Error parsing API response: {e}")
+            return []
     
+    def _list_models_native(self) -> List[str]:
+        """DEPRECATED: Use list_models() directly instead.
+        This method is kept temporarily for backwards compatibility.
+        """
+        return self.list_models()
+        
     def model_exists(self, model_name: str) -> bool:
         """Check if a model exists.
+        
+        For model names in format like "llama3.2:3b", this method extracts 
+        the base model name (e.g., "llama3.2") to check with Ollama API.
         
         Args:
             model_name: Name of the model to check
@@ -56,44 +96,39 @@ class LLMClient:
         Returns:
             True if model exists, False otherwise
         """
-        return model_name in self.list_models()
+        # Extract base model name before colon
+        # base_model = model_name
+        # if ":" in model_name:
+        #     base_model = model_name.split(":")[0]
+        
+        logger.debug(f"Checking if base model '{model_name}' exists")
+        models = self.list_models()
+        exists = model_name in models
+        return exists
     
     def pull_model(self, model_name: str) -> bool:
-        """Pull a model if it doesn't exist.
+        """Pull a model from Ollama registry.
         
-        Note: This uses Ollama's native API since OpenAI doesn't have a pull endpoint.
+        For model names in format like "llama3.2:3b", this method extracts 
+        the base model name (e.g., "llama3.2") to use with Ollama API.
         
         Args:
             model_name: Name of the model to pull
             
         Returns:
-            True if successful, False otherwise
+            True if pull was successful, False otherwise
         """
-        if self.model_exists(model_name):
-            logger.info(f"Model {model_name} already exists")
-            return True
-        
-        logger.info(f"Pulling model {model_name}...")
+        # Extract base model name before colon
+            
         url = f"{self.base_url}/api/pull"
-        data = {"name": model_name}
+        payload = {"name": model_name}
         
         try:
-            response = self.session.post(url, json=data, stream=True)
+            logger.info(f"Pulling model {model_name} from {url}")
+            response = self.session.post(url, json=payload)
             response.raise_for_status()
-            
-            # Process streaming response to show progress
-            for line in response.iter_lines():
-                if line:
-                    logger.debug(f"Pull progress: {line.decode('utf-8')}")
-            
-            # Verify model was pulled successfully
-            if self.model_exists(model_name):
-                logger.info(f"Successfully pulled model {model_name}")
-                return True
-            else:
-                logger.error(f"Failed to pull model {model_name}")
-                return False
-                
+            logger.info(f"Successfully pulled model {model_name}")
+            return True
         except requests.exceptions.RequestException as e:
             logger.error(f"Error pulling model {model_name}: {e}")
             return False
@@ -108,25 +143,31 @@ class LLMClient:
         Returns:
             True if model is available, False otherwise
         """
-        # Check if model exists
         if self.model_exists(model_name):
+            logger.info(f"Model '{model_name}' is already available")
             return True
-        
-        # Try to pull the model
-        for attempt in range(max_retries):
-            logger.info(f"Attempting to pull model {model_name} (attempt {attempt + 1}/{max_retries})")
-            if self.pull_model(model_name):
-                return True
             
-            # Wait before retrying
-            if attempt < max_retries - 1:
-                wait_time = 2 ** attempt  # Exponential backoff
-                logger.info(f"Waiting {wait_time} seconds before retrying...")
-                time.sleep(wait_time)
+        # Extract base model name for logging clarity
+        # base_model = model_name
+        # if ":" in model_name:
+        #     base_model = model_name.split(":")[0]
+            
+        logger.info(f"Model '{model_name}' not found, attempting to pull")
         
+        for attempt in range(1, max_retries + 1):
+            logger.info(f"Pull attempt {attempt}/{max_retries} for model '{model_name}'")
+            
+            if self.pull_model(model_name):
+                logger.info(f"Successfully pulled model '{model_name}'")
+                return True
+
+            logger.warning(f"Failed to pull model '{model_name}' (attempt {attempt}/{max_retries})")
+            time.sleep(2 ** attempt)  # Exponential backoff
+            
+        logger.error(f"Failed to pull model '{model_name}' after {max_retries} attempts")
         return False
     
-    def generate(
+    def chat(
         self,
         model: str,
         messages: List[Dict[str, Any]],
