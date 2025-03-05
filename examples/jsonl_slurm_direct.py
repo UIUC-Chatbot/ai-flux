@@ -37,7 +37,7 @@ def run_slurm_jsonl_job():
     
     # Setup SLURM configuration
     slurm_config = config.get_slurm_config()
-    slurm_config.account = os.getenv('SLURM_ACCOUNT', 'bbwb-hydro')  # Use bbwb-hydro as fallback
+    slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
     slurm_config.time = "01:00:00"  # 1 hour
     slurm_config.mem = "16G"        # 16GB memory
     slurm_config.gpus_per_node = 1  # 1 GPU
