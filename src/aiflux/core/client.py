@@ -7,6 +7,9 @@ import time
 import json
 from typing import Dict, Any, Optional, List
 import requests
+from dotenv import load_dotenv
+
+load_dotenv(override=True)
 
 # Configure logging
 logging.basicConfig(
