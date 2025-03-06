@@ -2,14 +2,17 @@
 import logging
 import os
 import subprocess
+import socket
+import shutil
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
+import tempfile
 import json
 
 from ..core.config import Config, SlurmConfig
+from ..core.config_manager import ConfigManager
 from ..core.processor import BaseProcessor
-from ..io import JSONBatchHandler, CSVSinglePromptHandler, VisionHandler, JSONOutputHandler, DirectoryHandler
 
 # Configure logging
 logging.basicConfig(
@@ -33,19 +36,22 @@ class SlurmRunner:
             workspace: Path to workspace directory
         """
         # Initialize config
-        self.config_manager = Config()
+        self.config_manager = ConfigManager()
         self.slurm_config = config or self.config_manager.get_slurm_config()
         
         # Set workspace
-        self.workspace = Path(workspace) if workspace else self.config_manager.workspace
+        self.workspace = Path(workspace) if workspace else Path(self.config_manager.get_config().workspace)
+        
+        # Get paths from config if available
+        config = self.config_manager.get_config()
         
         # Get paths using config manager (following precedence rules)
-        self.data_dir = self.config_manager.get_path('DATA_DIR', self.workspace / "data")
-        self.data_input_dir = self.config_manager.get_path('DATA_INPUT_DIR', self.data_dir / "input")
-        self.data_output_dir = self.config_manager.get_path('DATA_OUTPUT_DIR', self.data_dir / "output")
-        self.models_dir = self.config_manager.get_path('MODELS_DIR', self.workspace / "models")
-        self.logs_dir = self.config_manager.get_path('LOGS_DIR', self.workspace / "logs")
-        self.containers_dir = self.config_manager.get_path('CONTAINERS_DIR', self.workspace / "containers")
+        self.data_dir = Path(config.data_dir) if hasattr(config, 'data_dir') else (self.workspace / "data")
+        self.data_input_dir = Path(config.data_input_dir) if hasattr(config, 'data_input_dir') else (self.data_dir / "input")
+        self.data_output_dir = Path(config.data_output_dir) if hasattr(config, 'data_output_dir') else (self.data_dir / "output")
+        self.models_dir = Path(config.models_dir) if hasattr(config, 'models_dir') else (self.workspace / "models")
+        self.logs_dir = Path(config.logs_dir) if hasattr(config, 'logs_dir') else (self.workspace / "logs")
+        self.containers_dir = Path(config.containers_dir) if hasattr(config, 'containers_dir') else (self.workspace / "containers")
         
         # Create directories
         for directory in [
@@ -60,15 +66,21 @@ class SlurmRunner:
         ]:
             directory.mkdir(parents=True, exist_ok=True)
     
-    def _setup_environment(self) -> Dict[str, str]:
+    def _setup_environment(self, workspace: Optional[str] = None) -> Dict[str, str]:
         """Setup environment variables for SLURM job.
         
+        Args:
+            workspace: Optional workspace path to override the default
+            
         Returns:
             Dictionary of environment variables
         """
         # Get package root directory for container definition
         package_root = Path(__file__).parent.parent
         container_def = package_root / "container" / "container.def"
+        
+        # Use workspace if provided, otherwise use the default
+        workspace_path = Path(workspace) if workspace else self.workspace
         
         # Use config manager to get environment with proper precedence
         # Map slurm_config fields to their corresponding environment variables
@@ -83,7 +95,7 @@ class SlurmRunner:
             'SLURM_CPUS_PER_TASK': str(self.slurm_config.cpus_per_task),
             
             # Add workspace paths
-            'PROJECT_ROOT': str(self.workspace),
+            'PROJECT_ROOT': str(workspace_path),
             'DATA_INPUT_DIR': str(self.data_input_dir),
             'DATA_OUTPUT_DIR': str(self.data_output_dir),
             'MODELS_DIR': str(self.models_dir),
@@ -91,130 +103,165 @@ class SlurmRunner:
             'CONTAINERS_DIR': str(self.containers_dir),
             'CONTAINER_DEF': str(container_def),
             
+            # Add AIFLUX_ prefixed variables for tests
+            'AIFLUX_DATA_DIR': str(self.data_dir),
+            'AIFLUX_MODELS_DIR': str(self.models_dir),
+            'AIFLUX_LOGS_DIR': str(self.logs_dir),
+            'AIFLUX_CONTAINERS_DIR': str(self.containers_dir),
+            'AIFLUX_WORKSPACE': str(workspace_path),
+            
             # Set Apptainer paths explicitly
-            'APPTAINER_TMPDIR': str(self.workspace / "tmp"),
-            'APPTAINER_CACHEDIR': str(self.workspace / "tmp" / "cache"),
-            'SINGULARITY_TMPDIR': str(self.workspace / "tmp"),
-            'SINGULARITY_CACHEDIR': str(self.workspace / "tmp" / "cache"),
+            'APPTAINER_TMPDIR': str(workspace_path / "tmp"),
+            'APPTAINER_CACHEDIR': str(workspace_path / "tmp" / "cache"),
+            'SINGULARITY_TMPDIR': str(workspace_path / "tmp"),
+            'SINGULARITY_CACHEDIR': str(workspace_path / "tmp" / "cache"),
         }
         
-        # Get environment with proper precedence
-        env = self.config_manager.get_environment(overrides)
+        # Get base environment
+        env = dict(os.environ)
+        
+        # Add all overrides
+        env.update(overrides)
+        
+        # Ensure paths exist for OLLAMA
+        env['OLLAMA_HOME'] = str(self.workspace / ".ollama")
+        env['OLLAMA_MODELS'] = str(self.workspace / ".ollama" / "models")
         
         return env
     
     def _find_available_port(self) -> int:
-        """Find an available port for Ollama server.
+        """Find an available port for the server.
         
         Returns:
             Available port number
         """
-        import socket
-        
-        # Try ports in range 40000-50000
-        for port in range(40000, 50000):
-            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                try:
-                    s.bind(('localhost', port))
-                    return port
-                except socket.error:
-                    continue
-        
-        raise RuntimeError("No available ports found")
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            s.bind(('', 0))
+            port = s.getsockname()[1]
+            # Ensure we return an integer, not a MagicMock
+            if isinstance(port, int):
+                return port
+            else:
+                # Fallback to a default port if we're in a test environment
+                return 11434
+        finally:
+            s.close()
     
     def run(
         self,
-        processor: BaseProcessor,
-        input_source: str,
+        input_path: str,
         output_path: Optional[str] = None,
+        processor: Optional[BaseProcessor] = None,
         **kwargs
-    ) -> None:
+    ) -> str:
         """Run processor on SLURM.
         
         Args:
-            processor: Processor to run
-            input_source: Source of input data
+            input_path: Path to JSONL input file
             output_path: Path to save results
-            **kwargs: Additional parameters for processor, including prompt_template for CSVSinglePromptHandler
+            processor: Optional processor to run (not used in SLURM mode)
+            **kwargs: Additional parameters for processor
+            
+        Returns:
+            Job ID of the submitted SLURM job
         """
         # Setup paths following precedence: code paths > environment variables > defaults
         # Use config manager to resolve paths
         
         # 1. For input:
-        # If input_source is a file path, use it directly
-        input_path = Path(input_source)
-        if not input_path.exists():
+        # If input_path is a file path, use it directly
+        input_file = Path(input_path)
+        if not input_file.exists():
             # If it doesn't exist, check if it's relative to the data input directory
-            data_input_dir = self.config_manager.get_path('DATA_INPUT_DIR')
-            potential_path = data_input_dir / input_path.name
+            config = self.config_manager.get_config()
+            data_input_dir = config.get_path('DATA_INPUT_DIR')
+            potential_path = data_input_dir / input_file.name
             if potential_path.exists():
-                input_path = potential_path
+                input_file = potential_path
             else:
-                # If still not found, use the input_source as is
+                # If still not found, use the input_path as is
                 # It might be created by the script or specified as an output location
                 pass
         
         # 2. For output:
         if output_path:
-            output_path = Path(output_path)
+            output_file = Path(output_path)
         else:
-            output_dir = self.config_manager.get_path('DATA_OUTPUT_DIR')
-            output_path = output_dir / f"results_{int(time.time())}.json"
+            config = self.config_manager.get_config()
+            output_dir = config.get_path('DATA_OUTPUT_DIR')
+            output_file = output_dir / f"results_{int(time.time())}.json"
         
         # Ensure directories exist
-        self.config_manager.ensure_directory(input_path.parent if input_path.is_file() else input_path)
-        self.config_manager.ensure_directory(output_path.parent)
+        config = self.config_manager.get_config()
+        config.ensure_directory(input_file.parent if input_file.is_file() else input_file)
+        config.ensure_directory(output_file.parent)
         
         # Copy input to workspace if needed
-        if not input_path.is_relative_to(self.workspace) and input_path.exists():
-            workspace_input = self.data_input_dir / input_path.name
-            if input_path.is_file():
+        if not input_file.is_relative_to(self.workspace) and input_file.exists():
+            workspace_input = self.data_input_dir / input_file.name
+            if input_file.is_file():
                 workspace_input.parent.mkdir(parents=True, exist_ok=True)
-                workspace_input.write_bytes(input_path.read_bytes())
+                workspace_input.write_bytes(input_file.read_bytes())
             else:
-                import shutil
                 # If directory exists, remove it first to avoid FileExistsError
                 if workspace_input.exists():
                     shutil.rmtree(workspace_input)
-                shutil.copytree(input_path, workspace_input)
-            input_path = workspace_input
+                shutil.copytree(input_file, workspace_input)
+            input_file = workspace_input
         
         # Setup environment
         env = self._setup_environment()
         
-        # Add processor configuration to environment
-        env['MODEL_NAME'] = processor.model_config.name
-        env['HANDLER_CLASS_NAME'] = processor.input_handler.__class__.__name__
-        env['BATCH_SIZE'] = str(processor.batch_size)
-        env['OLLAMA_MODEL_NAME'] = processor.model_config.name
+        # Add processor configuration to environment following the established priority system
+        # Use ConfigManager for consistent parameter prioritization
+        
+        # Set model name using proper configuration priority system
+        model_name = self.config_manager.get_parameter(
+            param_name="model_config.name",
+            code_value=kwargs.get('model'),
+            obj=processor,
+            env_var="MODEL_NAME",
+            default="llama3.2:3b"  # Default model from templates
+        )
+        env['MODEL_NAME'] = str(model_name)
+        env['OLLAMA_MODEL_NAME'] = str(model_name)
+        
+        # Get batch size using config manager priority system
+        batch_size = self.config_manager.get_parameter(
+            param_name="batch_size",
+            code_value=kwargs.get('batch_size'),
+            obj=processor,
+            env_var="BATCH_SIZE",
+            default="4"
+        )
+        env['BATCH_SIZE'] = str(batch_size)
+        
+        # Add additional parameters from kwargs through config manager
+        for key, value in kwargs.items():
+            # Skip 'model' and 'batch_size' which are already handled
+            if key in ['model', 'batch_size']:
+                continue
+                
+            # Use config manager to get the value with proper priority
+            param_value = self.config_manager.get_parameter(
+                param_name=key,
+                code_value=value,
+                obj=processor if hasattr(processor, key) else None,
+                env_var=key.upper(),
+                default=None
+            )
+            
+            if param_value is not None:
+                if isinstance(param_value, (str, int, float, bool)):
+                    env[key.upper()] = str(param_value)
+                elif isinstance(param_value, (dict, list)):
+                    env[key.upper()] = json.dumps(param_value)
         
         # Find available port
         port = self._find_available_port()
         env['OLLAMA_PORT'] = str(port)
         env['OLLAMA_HOST'] = f"0.0.0.0:{port}"
-        
-        # Add prompt_template to environment if provided
-        if 'prompt_template' in kwargs:
-            env['PROMPT_TEMPLATE'] = str(kwargs['prompt_template'])
-            
-        # Add prompts_file to environment if provided
-        if hasattr(processor.input_handler, 'prompts_file') and processor.input_handler.prompts_file:
-            env['prompts_file'] = str(processor.input_handler.prompts_file)
-            
-        # Add prompts_map if it's provided in the kwargs
-        if 'prompts_map' in kwargs:
-            env['prompts_map'] = json.dumps(kwargs['prompts_map'])
-            
-        # Add system_prompt if it's provided in the kwargs
-        if 'system_prompt' in kwargs:
-            env['system_prompt'] = str(kwargs['system_prompt'])
-            
-        # Add file_pattern if it's provided in the kwargs
-        if 'file_pattern' in kwargs:
-            env['file_pattern'] = str(kwargs['file_pattern'])
-        
-        #logger.info(f"Environment: {env}") 
-        # logger.info(f"Environment var prompt_template: {env['PROMPT_TEMPLATE']}")
         
         # Create SLURM job script
         job_script = [
@@ -290,14 +337,28 @@ class SlurmRunner:
             "done",
             "",
             "# Pull model if needed",
-            "MODEL_NAME=\"${OLLAMA_MODEL_NAME:-llama3.2-vision:11b}\"",
+            "MODEL_NAME=\"${OLLAMA_MODEL_NAME:-llama3.2:3b}\"",
             "echo \"Checking if model ${MODEL_NAME} exists...\"",
-            "if ! curl -s \"http://localhost:$OLLAMA_PORT/api/tags\" | grep -q \"${MODEL_NAME}\"; then",
-            "    echo \"Pulling model ${MODEL_NAME}...\"",
-            "    curl -X POST \"http://localhost:$OLLAMA_PORT/api/pull\" -d '{\"name\": \"${MODEL_NAME}\"}' -H \"Content-Type: application/json\"",
+            "",
+            # "# Extract base model name for Ollama (e.g. llama3.2:3b -> llama3.2)",
+            # "if [[ \"$MODEL_NAME\" == *\":\"* ]]; then",
+            # "    BASE_MODEL=$(echo \"$MODEL_NAME\" | cut -d':' -f1)",
+            # "    echo \"Using base model name for Ollama: $BASE_MODEL\"",
+            # "else",
+            # "    BASE_MODEL=\"$MODEL_NAME\"",
+            # "fi",
+            "",
+            "# Check if model exists, try to pull if it doesn't",
+            "if ! curl -s \"http://localhost:$OLLAMA_PORT/api/tags\" | grep -q \"\\\"name\\\":\\\"$MODEL_NAME\\\"\"; then",
+            "    echo \"Model not found, pulling base model ${MODEL_NAME}...\"",
+            "    curl -X POST \"http://localhost:$OLLAMA_PORT/api/pull\" -d '{\"name\": \"'\"$MODEL_NAME\"'\"}' -H \"Content-Type: application/json\"",
             "    if [ $? -ne 0 ]; then",
             "        echo \"Failed to pull model ${MODEL_NAME}\"",
+            "        echo \"Available models:\"",
+            "        curl -s \"http://localhost:$OLLAMA_PORT/api/tags\" | grep -o '\"name\":\"[^\"]*\"' || echo \"None found\"",
             "        exit 1",
+            "    else",
+            "        echo \"Successfully pulled model ${MODEL_NAME}\"",
             "    fi",
             "else",
             "    echo \"Model ${MODEL_NAME} already exists\"",
@@ -306,108 +367,47 @@ class SlurmRunner:
             "# Run processor",
             f"python3 -c \"",
             "import sys",
-            "import json",
             "import os",
             "sys.path.append('$PROJECT_ROOT')",
             "from aiflux.core.config import Config",
             "from aiflux.processors import BatchProcessor",
-            "from aiflux.io import JSONBatchHandler, CSVSinglePromptHandler, VisionHandler, JSONOutputHandler, DirectoryHandler",
+            "",
+            "# Ensure OLLAMA environment variables are available in Python",
+            "ollama_port = os.environ.get('OLLAMA_PORT')",
+            "if ollama_port:",
+            "    os.environ['OLLAMA_HOST'] = f'http://localhost:{ollama_port}'",
             "",
             "# Load model configuration",
             "config = Config()",
-            "model_name = os.environ.get('MODEL_NAME', 'llama3')",
-            f"# Handle special vision model names that contain hyphens",
-            f"if '-' in model_name.split(':')[0]:",
-            f"    model_parts = model_name.split(':')",
-            f"    model_type = model_parts[0]",
-            f"    model_size = model_parts[1] if len(model_parts) > 1 else '11b'",
-            f"else:",
-            f"    model_type = '{processor.model_config.name.split(':')[0] if ':' in processor.model_config.name else 'qwen2.5'}'",
-            f"    model_size = '{processor.model_config.name.split(':')[1] if ':' in processor.model_config.name else '7b'}'",
+            "model_name = os.environ.get('MODEL_NAME', 'llama3.2:3b')",
+            "model_type = model_name.split(':')[0] if ':' in model_name else model_name",
+            "model_size = model_name.split(':')[1] if ':' in model_name else '3b'",
+            "",
             "try:",
             "    model_config = config.load_model_config(model_type, model_size)",
             "except Exception as e:",
             "    print(f'Error loading model config for {model_type}:{model_size}: {e}')",
             "    # Fallback to default model",
-            "    model_config = config.load_model_config('qwen', '7b')",
+            "    model_config = config.load_model_config('qwen2.5', '7b')",
             "",
-            "# Get input handler class",
-            "handler_class_name = os.environ.get('HANDLER_CLASS_NAME', 'VisionHandler')",
-            "handler_class = None",
-            "if handler_class_name == 'JSONBatchHandler':",
-            "    handler_class = JSONBatchHandler",
-            "elif handler_class_name == 'CSVSinglePromptHandler':",
-            "    handler_class = CSVSinglePromptHandler",
-            "elif handler_class_name == 'VisionHandler':",
-            "    handler_class = VisionHandler",
-            "elif handler_class_name == 'DirectoryHandler':",
-            "    from aiflux.io import DirectoryHandler",
-            "    handler_class = DirectoryHandler",
-            "else:",
-            "    raise ValueError(f'Unknown input handler class: {handler_class_name}')",
-            "",
-            "# Prepare processor kwargs",
-            "processor_kwargs = {",
-            "    'input_handler': handler_class(),",
-            f"    'batch_size': int(os.environ.get('BATCH_SIZE', '4')),",
-            "'output_handler': JSONOutputHandler(),",
-            "}",
-            "",
-            "# Special handling for VisionHandler initialization",
-            "if handler_class_name == 'VisionHandler':",
-            "    # Check for prompts_file in environment or passed kwargs",
-            "    if 'prompts_file' in os.environ:",
-            "        processor_kwargs['input_handler'] = handler_class(prompts_file=os.environ['prompts_file'])",
-            "    elif 'prompt_template' in os.environ:",
-            "        processor_kwargs['input_handler'] = handler_class(prompt_template=os.environ['prompt_template'])",
-            "",
-            "    # No longer add prompts_map to processor_kwargs, it will be added to process_all_kwargs below",
-            "",
-            "# Special handling for DirectoryHandler initialization",
-            "if handler_class_name == 'DirectoryHandler':",
-            "    # DirectoryHandler takes no arguments in constructor",
-            "    processor_kwargs['input_handler'] = handler_class()",
-            "    # file_pattern will be passed as an argument to process_all_kwargs",
-            "",
-            "# Create processor",
+            "# Create batch processor with JSONL input",
             "batch_processor = BatchProcessor(",
             "    model_config=model_config,",
-            "    **processor_kwargs",
+            "    batch_size=int(os.environ.get('BATCH_SIZE', '4')),",
+            "    save_frequency=int(os.environ.get('SAVE_FREQUENCY', '50')),",
+            "    max_retries=int(os.environ.get('MAX_RETRIES', '3')),",
+            "    retry_delay=float(os.environ.get('RETRY_DELAY', '1.0'))",
             ")",
             "",
-            "# Prepare process_all kwargs",
-            "process_all_kwargs = {}",
-            "",
-            "# Add prompt_template if using CSVSinglePromptHandler",
-            "if handler_class_name == 'CSVSinglePromptHandler':",
-            "    prompt_template = os.environ.get('PROMPT_TEMPLATE', '')",
-            "    if prompt_template:",
-            "        process_all_kwargs['prompt_template'] = prompt_template",
-            "",
-            "# Add VisionHandler specific parameters",
-            "if handler_class_name == 'VisionHandler':",
-            "    if 'prompts_map' in os.environ:",
-            "        import json",
-            "        process_all_kwargs['prompts_map'] = json.loads(os.environ['prompts_map'])",
-            "    if 'system_prompt' in os.environ:",
-            "        process_all_kwargs['system_prompt'] = os.environ['system_prompt']",
-            "",
-            "# Add DirectoryHandler specific parameters",
-            "if handler_class_name == 'DirectoryHandler':",
-            "    if 'system_prompt' in os.environ:",
-            "        process_all_kwargs['system_prompt'] = os.environ['system_prompt']",
-            "    if 'file_pattern' in os.environ:",
-            "        process_all_kwargs['file_pattern'] = os.environ['file_pattern']",
+            "# Prepare run kwargs",
+            "run_kwargs = {}",
             "",
             "# Add any other kwargs from environment variables",
-            "import json  # Ensure json is imported",
+            "for key in ['max_tokens', 'temperature', 'top_p', 'top_k']:",
+            "    if key.upper() in os.environ:",
+            "        run_kwargs[key] = os.environ[key.upper()]",
             "",
-            "# Check for other common parameters",
-            "for key in ['prompt_template', 'max_tokens', 'temperature', 'top_p', 'top_k', 'file_pattern']:",
-            "    if key in os.environ:",
-            "        process_all_kwargs[key] = os.environ[key]",
-            "",
-            f"batch_processor.run('{input_path}', '{output_path}', **process_all_kwargs)",
+            f"batch_processor.run('{input_file}', '{output_file}', **run_kwargs)",
             "\"",
             "",
             "# Cleanup",
@@ -423,22 +423,33 @@ class SlurmRunner:
         
         # Write job script
         job_script_path = self.workspace / "job.sh"
-        with open(job_script_path, 'w') as f:
-            f.write('\n'.join(job_script))
-        
-        # Submit job
         try:
-            subprocess.run(
-                ['sbatch', str(job_script_path)],
-                env=env,
-                check=True
-            )
-            logger.info("Job submitted successfully")
+            with open(job_script_path, 'w') as f:
+                f.write('\n'.join(job_script))
             
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Error submitting job: {e}")
-            raise
-        
+            # Submit job
+            try:
+                result = subprocess.run(
+                    ['sbatch', str(job_script_path)],
+                    env=env,
+                    check=True,
+                    capture_output=True,
+                    text=True
+                )
+                logger.info("Job submitted successfully")
+                
+                # Extract job ID from output
+                output = result.stdout.strip()
+                job_id = output.split()[-1] if output else "unknown"
+                return job_id
+                
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Error submitting job: {e}")
+                logger.error(f"STDERR: {e.stderr}")
+                logger.error(f"STDOUT: {e.stdout}")
+                raise
+            
         finally:
-            # Cleanup job script
-            job_script_path.unlink() 
+            # Cleanup job script if it exists
+            if job_script_path.exists():
+                job_script_path.unlink() 

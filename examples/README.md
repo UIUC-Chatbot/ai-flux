@@ -2,108 +2,128 @@
 
 This directory contains example scripts demonstrating how to use AI-Flux for batch processing with LLMs on HPC systems.
 
-## Available Examples
+## JSONL-First Examples
 
-### 1. Basic Batch Processing (`batch_processing.py`)
+The following examples demonstrate the JSONL-first architecture that simplifies batch processing by:
+1. Working directly with JSONL files in OpenAI-compatible format
+2. Separating format conversion as an optional pre-processing step
+3. Processing JSONL files directly with no input handlers needed
 
-A comprehensive example that demonstrates both JSON and CSV batch processing in a single script:
+### 1. Direct JSONL Processing (`jsonl_slurm_direct.py`)
+
+Demonstrates the core workflow - submitting JSONL files directly to SLURM:
 
 ```python
-# Process JSON prompts
+# Setup SLURM configuration
 config = Config()
-model_config = config.load_model_config('qwen2.5', '7b')
+slurm_config = config.get_slurm_config()
+slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+slurm_config.time = "01:00:00"
+slurm_config.mem = "16G"
+slurm_config.gpus_per_node = 1
 
-processor = BatchProcessor(
-    model_config=model_config,
-    input_handler=JSONBatchHandler(),
-    batch_size=8
+# Create runner with configuration
+slurm_runner = SlurmRunner(
+    config=slurm_config,
+    workspace=os.getcwd()
 )
 
-runner = SlurmRunner(
-    config=config.get_slurm_config({
-        'account': os.getenv('SLURM_ACCOUNT'),
-        'time': '01:00:00'
-    })
-)
-
-runner.run(
-    processor,
-    input_source='data/prompts.json',
-    output_path='results/batch_results.json'
+# Submit job - this is the core functionality
+job_id = slurm_runner.run(
+    input_path="data/prompts.jsonl",     # Direct JSONL input
+    output_path="results/output.json",   # Path for results
+    model="llama3.2:3b",                 # Model to use
+    batch_size=4                         # Items to process in parallel
 )
 ```
 
-### 2. JSON Batch Processing (`json_batch_processor.py`)
+### 2. CSV to JSONL Processing (`csv_jsonl_example.py`)
 
-Example for processing a batch of JSON prompts:
+Demonstrates converting a CSV file to JSONL format and then processing it:
 
 ```python
-# Initialize processor with JSON handler
-processor = BatchProcessor(
-    model_config=model_config,
-    input_handler=JSONBatchHandler(),
-    batch_size=8
+# Convert CSV to JSONL format
+conversion_result = csv_to_jsonl(
+    input_path='data/papers.csv',
+    output_path=jsonl_path,
+    prompt_template="Please summarize this paper: Title: {title}, Abstract: {abstract}",
+    system_prompt="You are a research assistant specialized in summarizing papers.",
+    model="llama3.2:3b"
 )
 
-# Process inputs
+# Setup SLURM configuration
+slurm_config = config.get_slurm_config()
+slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+slurm_config.time = "02:00:00"
+
+# Run on SLURM with the JSONL file directly
+runner = SlurmRunner(config=slurm_config, workspace=os.getcwd())
 runner.run(
-    processor,
-    input_source='data/prompts.json',
-    output_path='results/batch_results.json'
-)
-```
-
-Expected JSON input format:
-```json
-[
-    {
-        "prompt": "Explain quantum computing in simple terms.",
-        "temperature": 0.7,
-        "max_tokens": 1024
-    },
-    {
-        "prompt": "What are the main applications of machine learning in healthcare?",
-        "temperature": 0.8,
-        "max_tokens": 2048
-    }
-]
-```
-
-### 3. CSV Batch Processing (`csv_batch_processor.py`)
-
-Example for processing CSV files with a template prompt:
-
-```python
-# Initialize processor with CSV handler
-processor = BatchProcessor(
-    model_config=model_config,
-    input_handler=CSVSinglePromptHandler(),
+    input_path=jsonl_path,
+    output_path=output_path,
+    model="llama3.2:3b",
     batch_size=4
 )
+```
 
-# Process inputs with template
+### 3. JSON to JSONL Processing (`json_jsonl_example.py`)
+
+Demonstrates converting a JSON file to JSONL format and then processing it:
+
+```python
+# Convert JSON to JSONL first
+conversion_result = json_to_jsonl(
+    input_path=input_path,
+    output_path=jsonl_path,
+    model="llama3.2:3b"
+)
+
+# Setup SLURM configuration and runner
+slurm_config = config.get_slurm_config()
+slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+runner = SlurmRunner(config=slurm_config, workspace=os.getcwd())
+
+# Run with JSONL file directly
 runner.run(
-    processor,
-    input_source='data/papers.csv',
-    output_path='results/paper_summaries.json',
-    prompt_template=(
-        "Please summarize the following research paper:\n\n"
-        "Title: {title}\n"
-        "Abstract: {abstract}\n\n"
-        "Provide a concise summary focusing on:\n"
-        "1. Main research question\n"
-        "2. Key methodology\n"
-        "3. Main findings\n"
-        "4. Significance of results"
-    )
+    input_path=jsonl_path,
+    output_path=output_path,
+    model="llama3.2:3b",
+    batch_size=8
 )
 ```
 
-Expected CSV input format:
-```csv
-title,abstract
-"Quantum Supremacy Using a Programmable Superconducting Processor","The promise of quantum computers is that certain computational tasks might be executed exponentially faster on a quantum processor than on a classical processor..."
-"Large Language Models in Machine Learning","Recent advances in transformer architectures and pre-training techniques have led to significant improvements in natural language processing tasks..."
+### 4. Directory to JSONL Processing (`directory_jsonl_example.py`)
+
+Demonstrates converting a directory of files to JSONL format and then processing them:
+
+```python
+# Convert directory contents to JSONL
+conversion_result = directory_to_jsonl(
+    input_path=input_dir,
+    output_path=jsonl_path,
+    file_pattern="*.txt",  # Only process .txt files
+    recursive=True,  # Include subdirectories
+    prompt_template="Please analyze this file: {filename}\nContent: {content}",
+    system_prompt="You are a document analysis assistant.",
+    model="llama3.2:3b"
+)
+
+# Process with JSONL-first approach
+runner.run(
+    input_path=jsonl_path,
+    output_path=output_path,
+    model="llama3.2:3b",
+    batch_size=4
+)
+```
+
+## JSONL Format
+
+AI-Flux uses the OpenAI Batch API specification for its JSONL files:
+
+```jsonl
+{"custom_id":"request1","method":"POST","url":"/v1/chat/completions","body":{"model":"llama3.2:3b","messages":[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"What is quantum computing?"}],"temperature":0.7,"max_tokens":500}}
+{"custom_id":"request2","method":"POST","url":"/v1/chat/completions","body":{"model":"llama3.2:3b","messages":[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"What is machine learning?"}],"temperature":0.7,"max_tokens":500}}
 ```
 
 ## Running the Examples
@@ -111,7 +131,11 @@ title,abstract
 1. Ensure you have set up your environment variables in `.env`
 2. Run an example:
    ```bash
-   python examples/batch_processing.py
+   # Run the core JSONL workflow
+   python examples/jsonl_slurm_direct.py
+   
+   # Run a converter example
+   python examples/csv_jsonl_example.py
    ```
 
 Each example script will create sample data files if they don't exist and then submit a SLURM job for processing. 

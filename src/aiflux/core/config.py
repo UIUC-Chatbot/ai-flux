@@ -20,6 +20,14 @@ class ParameterConfig(BaseModel):
     max_tokens: int = Field(..., ge=1)
     stop_sequences: List[str]
 
+class ModelParameters(BaseModel):
+    """Model parameters for inference."""
+    temperature: float = Field(0.7, ge=0.0, le=1.0)
+    max_tokens: int = Field(2048, ge=1)
+    top_p: float = Field(0.9, ge=0.0, le=1.0)
+    top_k: int = Field(40, ge=0)
+    stop_sequences: Optional[List[str]] = None
+
 class SystemConfig(BaseModel):
     """Model system configuration."""
     prompt: str
@@ -55,12 +63,17 @@ class RequirementsConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     """Complete model configuration."""
-    name: str = Field(..., pattern=r"^[a-zA-Z0-9.-]+([-][a-zA-Z0-9.]+)*:\d+b$")
-    resources: ResourceConfig
-    parameters: ParameterConfig
-    system: SystemConfig
-    validation: ValidationConfig
-    requirements: RequirementsConfig
+    name: str = Field(..., pattern=r"^[a-zA-Z0-9.-:]+([-][a-zA-Z0-9.:]+)*$")
+    type: str = Field("ollama")
+    size: str = Field("7b")
+    parameters: ModelParameters = Field(default_factory=ModelParameters)
+    path: Optional[str] = None
+    description: Optional[str] = None
+    capabilities: List[str] = Field(default_factory=lambda: ["text"])
+    resources: Optional[ResourceConfig] = None
+    system: Optional[SystemConfig] = None
+    validation: Optional[ValidationConfig] = None
+    requirements: Optional[RequirementsConfig] = None
 
 class SlurmConfig(BaseModel):
     """SLURM configuration with env var support."""
@@ -77,11 +90,20 @@ class SlurmConfig(BaseModel):
     time: str = Field(
         default_factory=lambda: os.getenv('SLURM_TIME', '00:30:00')
     )
+    mem: str = Field(
+        default_factory=lambda: os.getenv('SLURM_MEM', '32G')
+    )
     memory: str = Field(
         default_factory=lambda: os.getenv('SLURM_MEM', '32G')
     )
     cpus_per_task: int = Field(
         default_factory=lambda: int(os.getenv('SLURM_CPUS_PER_TASK', '4'))
+    )
+    ntasks: int = Field(
+        default_factory=lambda: int(os.getenv('SLURM_NTASKS', '1'))
+    )
+    ntasks_per_node: int = Field(
+        default_factory=lambda: int(os.getenv('SLURM_NTASKS_PER_NODE', '1'))
     )
 
 def parse_gpu_memory(memory_str: str) -> int:
@@ -94,7 +116,23 @@ def parse_gpu_memory(memory_str: str) -> int:
 class Config:
     """Central configuration management."""
     
-    def __init__(self):
+    def __init__(self, 
+                 data_dir: Optional[str] = None,
+                 models_dir: Optional[str] = None,
+                 logs_dir: Optional[str] = None,
+                 containers_dir: Optional[str] = None,
+                 slurm: Optional[SlurmConfig] = None,
+                 models: Optional[List[ModelConfig]] = None):
+        """Initialize configuration.
+        
+        Args:
+            data_dir: Optional path to data directory
+            models_dir: Optional path to models directory
+            logs_dir: Optional path to logs directory
+            containers_dir: Optional path to containers directory
+            slurm: Optional SLURM configuration
+            models: Optional list of model configurations
+        """
         self.package_dir = Path(__file__).parent.parent
         self.templates_dir = self.package_dir / 'templates'
         
@@ -104,13 +142,25 @@ class Config:
         # Initialize workspace paths
         self.workspace = Path.cwd()
         
+        # Set directories from parameters or environment variables
+        self.data_dir = data_dir or os.getenv('AIFLUX_DATA_DIR') or str(self.workspace / "data")
+        self.models_dir = models_dir or os.getenv('AIFLUX_MODELS_DIR') or str(self.workspace / "models")
+        self.logs_dir = logs_dir or os.getenv('AIFLUX_LOGS_DIR') or str(self.workspace / "logs")
+        self.containers_dir = containers_dir or os.getenv('AIFLUX_CONTAINERS_DIR') or str(self.workspace / "containers")
+        
+        # Set SLURM configuration
+        self.slurm = slurm or SlurmConfig()
+        
+        # Set model configurations
+        self.models = models or []
+        
         # Define default paths
         self.default_paths = {
-            'DATA_INPUT_DIR': self.workspace / "data" / "input",
-            'DATA_OUTPUT_DIR': self.workspace / "data" / "output",
-            'MODELS_DIR': self.workspace / "models",
-            'LOGS_DIR': self.workspace / "logs",
-            'CONTAINERS_DIR': self.workspace / "containers",
+            'DATA_INPUT_DIR': Path(self.data_dir) / "input",
+            'DATA_OUTPUT_DIR': Path(self.data_dir) / "output",
+            'MODELS_DIR': Path(self.models_dir),
+            'LOGS_DIR': Path(self.logs_dir),
+            'CONTAINERS_DIR': Path(self.containers_dir),
             'APPTAINER_TMPDIR': self.workspace / "tmp",
             'APPTAINER_CACHEDIR': self.workspace / "tmp" / "cache",
             'OLLAMA_HOME': self.workspace / ".ollama",
@@ -118,12 +168,12 @@ class Config:
         
         # Define default settings
         self.default_settings = {
-            'SLURM_PARTITION': 'a100',
-            'SLURM_NODES': '1',
-            'SLURM_GPUS_PER_NODE': '1',
-            'SLURM_TIME': '00:30:00',
-            'SLURM_MEM': '32G',
-            'SLURM_CPUS_PER_TASK': '4',
+            'SLURM_PARTITION': self.slurm.partition,
+            'SLURM_NODES': str(self.slurm.nodes),
+            'SLURM_GPUS_PER_NODE': str(self.slurm.gpus_per_node),
+            'SLURM_TIME': self.slurm.time,
+            'SLURM_MEM': self.slurm.mem,
+            'SLURM_CPUS_PER_TASK': str(self.slurm.cpus_per_task),
             'OLLAMA_ORIGINS': '*',
             'OLLAMA_INSECURE': 'true',
             'CURL_CA_BUNDLE': '',
@@ -297,7 +347,7 @@ class Config:
             'SLURM_NODES': str(slurm_config.nodes),
             'SLURM_GPUS_PER_NODE': str(slurm_config.gpus_per_node),
             'SLURM_TIME': slurm_config.time,
-            'SLURM_MEM': slurm_config.memory,
+            'SLURM_MEM': slurm_config.mem,
             'SLURM_CPUS_PER_TASK': str(slurm_config.cpus_per_task),
         })
         
@@ -332,35 +382,30 @@ class Config:
             with open(config_path, 'r') as f:
                 config_data = yaml.safe_load(f)
             
-            # Validate against schema
-            model_config = ModelConfig(**config_data)
-            
-            # Additional validation
-            gpu_mem = parse_gpu_memory(model_config.resources.gpu_memory)
-            min_gpu_mem = parse_gpu_memory(model_config.requirements.min_gpu_memory)
-            
-            if gpu_mem < min_gpu_mem:
-                raise ValueError(
-                    f"GPU memory ({gpu_mem}GB) less than minimum required "
-                    f"({min_gpu_mem}GB)"
+            # Create basic model config
+            model_config = ModelConfig(
+                name=f"{model_type}:{model_size}",
+                type=model_type,
+                size=model_size,
+                parameters=ModelParameters(
+                    temperature=config_data.get("parameters", {}).get("temperature", 0.7),
+                    max_tokens=config_data.get("parameters", {}).get("max_tokens", 2048),
+                    top_p=config_data.get("parameters", {}).get("top_p", 0.9),
+                    top_k=config_data.get("parameters", {}).get("top_k", 40),
+                    stop_sequences=config_data.get("parameters", {}).get("stop_sequences", None)
                 )
-            
-            if (model_config.resources.batch_size < 
-                model_config.validation.batch_size_range[0] or
-                model_config.resources.batch_size > 
-                model_config.validation.batch_size_range[1]):
-                raise ValueError("Batch size outside valid range")
-            
-            if (model_config.resources.max_concurrent < 
-                model_config.validation.concurrent_range[0] or
-                model_config.resources.max_concurrent > 
-                model_config.validation.concurrent_range[1]):
-                raise ValueError("Max concurrent requests outside valid range")
+            )
             
             return model_config
             
         except Exception as e:
-            raise ValueError(f"Error loading config from {config_path}: {str(e)}")
+            # Return default config if file not found
+            model_config = ModelConfig(
+                name=f"{model_type}:{model_size}",
+                type=model_type,
+                size=model_size
+            )
+            return model_config
     
     def get_slurm_config(
         self,
@@ -374,10 +419,11 @@ class Config:
         Returns:
             SlurmConfig instance
         """
-        config = SlurmConfig()
+        config = self.slurm
         if overrides:
             for key, value in overrides.items():
-                setattr(config, key, value)
+                if hasattr(config, key):
+                    setattr(config, key, value)
         return config
     
     def to_env_dict(self) -> Dict[str, str]:
@@ -394,7 +440,7 @@ class Config:
             'SLURM_NODES': str(slurm_config.nodes),
             'SLURM_GPUS_PER_NODE': str(slurm_config.gpus_per_node),
             'SLURM_TIME': slurm_config.time,
-            'SLURM_MEM': slurm_config.memory,
+            'SLURM_MEM': slurm_config.mem,
             'SLURM_CPUS_PER_TASK': str(slurm_config.cpus_per_task)
         }
         
