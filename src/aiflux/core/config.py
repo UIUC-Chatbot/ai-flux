@@ -55,7 +55,7 @@ class RequirementsConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     """Complete model configuration."""
-    name: str = Field(..., pattern=r"^[a-zA-Z0-9.-]+:\d+b$")
+    name: str = Field(..., pattern=r"^[a-zA-Z0-9.-]+([-][a-zA-Z0-9.]+)*:\d+b$")
     resources: ResourceConfig
     parameters: ParameterConfig
     system: SystemConfig

@@ -2,38 +2,50 @@
 """Example script for CSV batch processing with AI-Flux."""
 
 import os
+import sys
 from pathlib import Path
 
-from aiflux import BatchProcessor, SlurmRunner
-from aiflux.core.config import Config
-from aiflux.io import CSVSinglePromptHandler
+# Add parent directory to path for imports
+parent_dir = str(Path(__file__).resolve().parent.parent)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
+
+from src.aiflux import BatchProcessor, SlurmRunner
+from src.aiflux.core.config import Config
+from src.aiflux.io import CSVSinglePromptHandler, JSONOutputHandler
+from examples.utils import get_timestamped_filename, ensure_results_dir
 
 def process_csv_data():
     """Example of processing a CSV file."""
     # Load model configuration
     config = Config()
-    model_config = config.load_model_config('llama3.2', '3b')
+    model_config = config.load_model_config("llama3.2", "3b")
+    
+    # Define a system prompt for context
+    system_prompt = "You are a research assistant specializing in summarizing scientific papers."
     
     # Initialize processor with CSV handler
     processor = BatchProcessor(
         model_config=model_config,
         input_handler=CSVSinglePromptHandler(),
+        output_handler=JSONOutputHandler(),
         batch_size=4
     )
     
-    # Run on SLURM
-    runner = SlurmRunner(
-        config=config.get_slurm_config({
-            'account': os.getenv('SLURM_ACCOUNT'),
-            'time': '02:00:00'
-        })
-    )
+    # Setup SLURM configuration
+    slurm_config = config.get_slurm_config()
+    slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+    slurm_config.time = "02:00:00"
     
-    # Process inputs with template
+    # Create timestamped output path
+    output_path = get_timestamped_filename('results/paper_summaries.json')
+    
+    # Run on SLURM with template and system prompt
+    runner = SlurmRunner(config=slurm_config)
     runner.run(
-        processor,
+        processor=processor,
         input_source='data/papers.csv',
-        output_path='results/paper_summaries.json',
+        output_path=output_path,
         prompt_template=(
             "Please summarize the following research paper:\n\n"
             "Title: {title}\n"
@@ -43,8 +55,11 @@ def process_csv_data():
             "2. Key methodology\n"
             "3. Main findings\n"
             "4. Significance of results"
-        )
+        ),
+        system_prompt=system_prompt
     )
+    
+    print(f"Results saved to: {output_path}")
 
 def create_example_csv_data():
     """Create example CSV data for batch processing."""
@@ -62,6 +77,9 @@ Large Language Models in Machine Learning,"Recent advances in transformer archit
         f.write(csv_input)
 
 if __name__ == '__main__':
+    # Ensure results directory exists
+    ensure_results_dir()
+    
     create_example_csv_data()
     print("Processing CSV data...")
     process_csv_data() 

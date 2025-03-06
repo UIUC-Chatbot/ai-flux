@@ -9,7 +9,7 @@ import json
 
 from ..core.config import Config, SlurmConfig
 from ..core.processor import BaseProcessor
-from ..io import JSONBatchHandler, CSVSinglePromptHandler
+from ..io import JSONBatchHandler, CSVSinglePromptHandler, VisionHandler, JSONOutputHandler, DirectoryHandler
 
 # Configure logging
 logging.basicConfig(
@@ -173,23 +173,48 @@ class SlurmRunner:
                 workspace_input.write_bytes(input_path.read_bytes())
             else:
                 import shutil
+                # If directory exists, remove it first to avoid FileExistsError
+                if workspace_input.exists():
+                    shutil.rmtree(workspace_input)
                 shutil.copytree(input_path, workspace_input)
             input_path = workspace_input
         
         # Setup environment
         env = self._setup_environment()
         
-        # Add prompt_template to environment if provided
-        if 'prompt_template' in kwargs:
-            env['PROMPT_TEMPLATE'] = str(kwargs['prompt_template'])
-        
-        #logger.info(f"Environment: {env}") 
-        # logger.info(f"Environment var prompt_template: {env['PROMPT_TEMPLATE']}")
+        # Add processor configuration to environment
+        env['MODEL_NAME'] = processor.model_config.name
+        env['HANDLER_CLASS_NAME'] = processor.input_handler.__class__.__name__
+        env['BATCH_SIZE'] = str(processor.batch_size)
+        env['OLLAMA_MODEL_NAME'] = processor.model_config.name
         
         # Find available port
         port = self._find_available_port()
         env['OLLAMA_PORT'] = str(port)
         env['OLLAMA_HOST'] = f"0.0.0.0:{port}"
+        
+        # Add prompt_template to environment if provided
+        if 'prompt_template' in kwargs:
+            env['PROMPT_TEMPLATE'] = str(kwargs['prompt_template'])
+            
+        # Add prompts_file to environment if provided
+        if hasattr(processor.input_handler, 'prompts_file') and processor.input_handler.prompts_file:
+            env['prompts_file'] = str(processor.input_handler.prompts_file)
+            
+        # Add prompts_map if it's provided in the kwargs
+        if 'prompts_map' in kwargs:
+            env['prompts_map'] = json.dumps(kwargs['prompts_map'])
+            
+        # Add system_prompt if it's provided in the kwargs
+        if 'system_prompt' in kwargs:
+            env['system_prompt'] = str(kwargs['system_prompt'])
+            
+        # Add file_pattern if it's provided in the kwargs
+        if 'file_pattern' in kwargs:
+            env['file_pattern'] = str(kwargs['file_pattern'])
+        
+        #logger.info(f"Environment: {env}") 
+        # logger.info(f"Environment var prompt_template: {env['PROMPT_TEMPLATE']}")
         
         # Create SLURM job script
         job_script = [
@@ -265,16 +290,17 @@ class SlurmRunner:
             "done",
             "",
             "# Pull model if needed",
-            f"echo \"Checking if model {processor.model} exists...\"",
-            f"if ! curl -s \"http://localhost:$OLLAMA_PORT/api/tags\" | grep -q \"{processor.model}\"; then",
-            f"    echo \"Pulling model {processor.model}...\"",
-            f"    curl -X POST \"http://localhost:$OLLAMA_PORT/api/pull\" -d '{{\"name\": \"{processor.model}\"}}' -H \"Content-Type: application/json\"",
+            "MODEL_NAME=\"${OLLAMA_MODEL_NAME:-llama3.2-vision:11b}\"",
+            "echo \"Checking if model ${MODEL_NAME} exists...\"",
+            "if ! curl -s \"http://localhost:$OLLAMA_PORT/api/tags\" | grep -q \"${MODEL_NAME}\"; then",
+            "    echo \"Pulling model ${MODEL_NAME}...\"",
+            "    curl -X POST \"http://localhost:$OLLAMA_PORT/api/pull\" -d '{\"name\": \"${MODEL_NAME}\"}' -H \"Content-Type: application/json\"",
             "    if [ $? -ne 0 ]; then",
-            f"        echo \"Failed to pull model {processor.model}\"",
+            "        echo \"Failed to pull model ${MODEL_NAME}\"",
             "        exit 1",
             "    fi",
             "else",
-            f"    echo \"Model {processor.model} already exists\"",
+            "    echo \"Model ${MODEL_NAME} already exists\"",
             "fi",
             "",
             "# Run processor",
@@ -285,12 +311,19 @@ class SlurmRunner:
             "sys.path.append('$PROJECT_ROOT')",
             "from aiflux.core.config import Config",
             "from aiflux.processors import BatchProcessor",
-            "from aiflux.io import JSONBatchHandler, CSVSinglePromptHandler",
+            "from aiflux.io import JSONBatchHandler, CSVSinglePromptHandler, VisionHandler, JSONOutputHandler, DirectoryHandler",
             "",
             "# Load model configuration",
             "config = Config()",
-            f"model_type = '{processor.model.split(':')[0] if ':' in processor.model else 'qwen'}'",
-            f"model_size = '{processor.model.split(':')[1] if ':' in processor.model else '7b'}'",
+            "model_name = os.environ.get('MODEL_NAME', 'llama3')",
+            f"# Handle special vision model names that contain hyphens",
+            f"if '-' in model_name.split(':')[0]:",
+            f"    model_parts = model_name.split(':')",
+            f"    model_type = model_parts[0]",
+            f"    model_size = model_parts[1] if len(model_parts) > 1 else '11b'",
+            f"else:",
+            f"    model_type = '{processor.model_config.name.split(':')[0] if ':' in processor.model_config.name else 'qwen2.5'}'",
+            f"    model_size = '{processor.model_config.name.split(':')[1] if ':' in processor.model_config.name else '7b'}'",
             "try:",
             "    model_config = config.load_model_config(model_type, model_size)",
             "except Exception as e:",
@@ -299,23 +332,45 @@ class SlurmRunner:
             "    model_config = config.load_model_config('qwen', '7b')",
             "",
             "# Get input handler class",
-            f"handler_class_name = '{processor.input_handler.__class__.__name__}'",
+            "handler_class_name = os.environ.get('HANDLER_CLASS_NAME', 'VisionHandler')",
             "handler_class = None",
             "if handler_class_name == 'JSONBatchHandler':",
             "    handler_class = JSONBatchHandler",
             "elif handler_class_name == 'CSVSinglePromptHandler':",
             "    handler_class = CSVSinglePromptHandler",
+            "elif handler_class_name == 'VisionHandler':",
+            "    handler_class = VisionHandler",
+            "elif handler_class_name == 'DirectoryHandler':",
+            "    from aiflux.io import DirectoryHandler",
+            "    handler_class = DirectoryHandler",
             "else:",
             "    raise ValueError(f'Unknown input handler class: {handler_class_name}')",
             "",
             "# Prepare processor kwargs",
             "processor_kwargs = {",
             "    'input_handler': handler_class(),",
-            f"    'batch_size': {processor.batch_size},",
+            f"    'batch_size': int(os.environ.get('BATCH_SIZE', '4')),",
+            "'output_handler': JSONOutputHandler(),",
             "}",
             "",
+            "# Special handling for VisionHandler initialization",
+            "if handler_class_name == 'VisionHandler':",
+            "    # Check for prompts_file in environment or passed kwargs",
+            "    if 'prompts_file' in os.environ:",
+            "        processor_kwargs['input_handler'] = handler_class(prompts_file=os.environ['prompts_file'])",
+            "    elif 'prompt_template' in os.environ:",
+            "        processor_kwargs['input_handler'] = handler_class(prompt_template=os.environ['prompt_template'])",
+            "",
+            "    # No longer add prompts_map to processor_kwargs, it will be added to process_all_kwargs below",
+            "",
+            "# Special handling for DirectoryHandler initialization",
+            "if handler_class_name == 'DirectoryHandler':",
+            "    # DirectoryHandler takes no arguments in constructor",
+            "    processor_kwargs['input_handler'] = handler_class()",
+            "    # file_pattern will be passed as an argument to process_all_kwargs",
+            "",
             "# Create processor",
-            "processor = BatchProcessor(",
+            "batch_processor = BatchProcessor(",
             "    model_config=model_config,",
             "    **processor_kwargs",
             ")",
@@ -329,12 +384,30 @@ class SlurmRunner:
             "    if prompt_template:",
             "        process_all_kwargs['prompt_template'] = prompt_template",
             "",
+            "# Add VisionHandler specific parameters",
+            "if handler_class_name == 'VisionHandler':",
+            "    if 'prompts_map' in os.environ:",
+            "        import json",
+            "        process_all_kwargs['prompts_map'] = json.loads(os.environ['prompts_map'])",
+            "    if 'system_prompt' in os.environ:",
+            "        process_all_kwargs['system_prompt'] = os.environ['system_prompt']",
+            "",
+            "# Add DirectoryHandler specific parameters",
+            "if handler_class_name == 'DirectoryHandler':",
+            "    if 'system_prompt' in os.environ:",
+            "        process_all_kwargs['system_prompt'] = os.environ['system_prompt']",
+            "    if 'file_pattern' in os.environ:",
+            "        process_all_kwargs['file_pattern'] = os.environ['file_pattern']",
+            "",
             "# Add any other kwargs from environment variables",
-            f"for key in {json.dumps(list(kwargs.keys()))}:",
+            "import json  # Ensure json is imported",
+            "",
+            "# Check for other common parameters",
+            "for key in ['prompt_template', 'max_tokens', 'temperature', 'top_p', 'top_k', 'file_pattern']:",
             "    if key in os.environ:",
             "        process_all_kwargs[key] = os.environ[key]",
             "",
-            f"processor.process_all('{input_path}', '{output_path}', **process_all_kwargs)",
+            f"batch_processor.run('{input_path}', '{output_path}', **process_all_kwargs)",
             "\"",
             "",
             "# Cleanup",

@@ -1,65 +1,105 @@
 #!/usr/bin/env python3
-"""Example script for JSON batch processing with AI-Flux."""
+"""Example for processing JSON batch files with AI-Flux."""
 
 import os
+import sys
+import json
 from pathlib import Path
 
-from aiflux import BatchProcessor, SlurmRunner
-from aiflux.core.config import Config
-from aiflux.io import JSONBatchHandler
+# Add parent directory to path for imports
+parent_dir = str(Path(__file__).resolve().parent.parent)
+if parent_dir not in sys.path:
+    sys.path.insert(0, parent_dir)
 
-def process_json_batch():
-    """Example of processing a JSON batch file."""
-    # Load model configuration
-    config = Config()
-    model_config = config.load_model_config('qwen2.5', '7b')
+from src.aiflux.core.config import ModelConfig, Config
+from src.aiflux.processors.batch import BatchProcessor
+from src.aiflux.io import JSONBatchHandler, JSONOutputHandler
+from src.aiflux.slurm.runner import SlurmRunner
+from examples.utils import get_timestamped_filename, ensure_results_dir
+
+def process_json_batch(input_path: str, output_path: str):
+    """Process JSON batch files.
     
-    # Initialize processor with JSON handler
+    Args:
+        input_path: Path to input JSON file
+        output_path: Path to save results
+    """
+    # Load model config
+    config = Config()
+    model_config = config.load_model_config("llama3.2", "3b")
+    
+    # Initialize batch processor with OpenAI-compatible client
     processor = BatchProcessor(
         model_config=model_config,
         input_handler=JSONBatchHandler(),
+        output_handler=JSONOutputHandler(),
         batch_size=8
     )
     
+    # Setup SLURM runner
+    slurm_config = config.get_slurm_config()
+    slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+    slurm_config.time = "01:00:00"  # 1 hour time limit
+    
     # Run on SLURM
-    runner = SlurmRunner(
-        config=config.get_slurm_config({
-            'account': os.getenv('SLURM_ACCOUNT'),
-            'time': '01:00:00'
-        })
+    runner = SlurmRunner(config=slurm_config)
+    runner.run(
+        processor=processor,
+        input_source=input_path,
+        output_path=output_path
     )
     
-    # Process inputs
-    runner.run(
-        processor,
-        input_source='data/prompts.json',
-        output_path='results/batch_results.json'
-    )
+    print(f"Results saved to: {output_path}")
 
 def create_example_json_data():
-    """Create example JSON data for batch processing."""
-    # Create example data directory
-    data_dir = Path('data')
+    """Create example JSON data for processing."""
+    # Create data directory if it doesn't exist
+    data_dir = Path("data")
     data_dir.mkdir(exist_ok=True)
     
-    # Create example JSON input
-    json_input = """[
+    # Create example data
+    prompts = [
         {
-            "prompt": "Explain quantum computing in simple terms.",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "Explain quantum computing in simple terms."
+                }
+            ],
             "temperature": 0.7,
-            "max_tokens": 1024
+            "max_tokens": 500
         },
         {
-            "prompt": "What are the main applications of machine learning in healthcare?",
-            "temperature": 0.8,
-            "max_tokens": 2048
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are a helpful assistant with expertise in healthcare."
+                },
+                {
+                    "role": "user",
+                    "content": "How is machine learning being used in healthcare today?"
+                }
+            ],
+            "temperature": 0.5,
+            "max_tokens": 800
         }
-    ]"""
+    ]
     
-    with open(data_dir / 'prompts.json', 'w') as f:
-        f.write(json_input)
+    # Write to file
+    with open(data_dir / "prompts.json", "w") as f:
+        json.dump(prompts, f, indent=2)
+    
+    print(f"Created example data at {data_dir / 'prompts.json'}")
+    return str(data_dir / "prompts.json")
 
-if __name__ == '__main__':
-    create_example_json_data()
+if __name__ == "__main__":
+    # Ensure results directory exists
+    ensure_results_dir()
+    
+    # Create example data
+    input_file = create_example_json_data()
+    
+    # Process JSON batch with timestamped output
+    output_file = get_timestamped_filename("results/batch_results.json")
     print("Processing JSON batch...")
-    process_json_batch() 
+    process_json_batch(input_file, output_file) 
