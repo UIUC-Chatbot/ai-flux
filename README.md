@@ -12,7 +12,7 @@ A streamlined solution for running Large Language Models (LLMs) in batch mode on
          ▼                                 ▼                                 ▼
     ┌──────────┐                   ┌──────────────┐                   ┌──────────┐
     │  Batch   │                   │              │                   │  Output  │
-    │ Requests │─────────────────▶ │   Model on   │─────────────────▶│  Results │
+    │ Requests │─────────────────▶ │   Model on   │─────────────────▶ │  Results │
     │  (JSONL) │                   │    GPU(s)    │                   │  (JSON)  │
     └──────────┘                   │              │                   └──────────┘
                                    └──────────────┘                    
