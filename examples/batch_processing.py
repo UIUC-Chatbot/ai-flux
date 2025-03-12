@@ -21,7 +21,7 @@ def process_json_batch():
     """Example of processing a JSON batch file."""
     # Load model configuration
     config = Config()
-    model_config = config.load_model_config("mistral", "8x7b")
+    model_config = config.load_model_config("phi3", "mini")
     
     # Initialize processor with JSON handler
     processor = BatchProcessor(
