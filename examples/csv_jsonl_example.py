@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example script for CSV batch processing with AI-Flux."""
+"""Example script for CSV to JSONL conversion and processing with AI-Flux."""
 
 import os
 import sys
@@ -10,13 +10,14 @@ parent_dir = str(Path(__file__).resolve().parent.parent)
 if parent_dir not in sys.path:
     sys.path.insert(0, parent_dir)
 
-from src.aiflux import BatchProcessor, SlurmRunner
+from src.aiflux import BatchProcessor
 from src.aiflux.core.config import Config
-from src.aiflux.io import CSVSinglePromptHandler, JSONOutputHandler
+from src.aiflux.converters import csv_to_jsonl
+from src.aiflux.slurm import SlurmRunner
 from examples.utils import get_timestamped_filename, ensure_results_dir
 
-def process_csv_data():
-    """Example of processing a CSV file."""
+def process_csv_with_jsonl():
+    """Example of processing a CSV file using the JSONL-first approach."""
     # Load model configuration
     config = Config()
     model_config = config.load_model_config("llama3.2", "3b")
@@ -24,28 +25,14 @@ def process_csv_data():
     # Define a system prompt for context
     system_prompt = "You are a research assistant specializing in summarizing scientific papers."
     
-    # Initialize processor with CSV handler
-    processor = BatchProcessor(
-        model_config=model_config,
-        input_handler=CSVSinglePromptHandler(),
-        output_handler=JSONOutputHandler(),
-        batch_size=4
-    )
-    
-    # Setup SLURM configuration
-    slurm_config = config.get_slurm_config()
-    slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
-    slurm_config.time = "02:00:00"
-    
     # Create timestamped output path
+    jsonl_path = get_timestamped_filename('data/papers.jsonl')
     output_path = get_timestamped_filename('results/paper_summaries.json')
     
-    # Run on SLURM with template and system prompt
-    runner = SlurmRunner(config=slurm_config)
-    runner.run(
-        processor=processor,
-        input_source='data/papers.csv',
-        output_path=output_path,
+    # Convert CSV to JSONL format first
+    conversion_result = csv_to_jsonl(
+        input_path='data/papers.csv',
+        output_path=jsonl_path,
         prompt_template=(
             "Please summarize the following research paper:\n\n"
             "Title: {title}\n"
@@ -56,7 +43,31 @@ def process_csv_data():
             "3. Main findings\n"
             "4. Significance of results"
         ),
-        system_prompt=system_prompt
+        system_prompt=system_prompt,
+        model="llama3.2:3b"
+    )
+    
+    print(f"Converted CSV to JSONL: {jsonl_path}")
+    print(f"Total rows: {conversion_result['total_rows']}")
+    print(f"Successful conversions: {conversion_result['successful_conversions']}")
+    
+    # Initialize processor for JSONL processing
+    processor = BatchProcessor(
+        model_config=model_config,
+        batch_size=4
+    )
+    
+    # Setup SLURM configuration
+    slurm_config = config.get_slurm_config()
+    slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+    slurm_config.time = "02:00:00"
+    
+    # Run on SLURM with the JSONL file directly
+    runner = SlurmRunner(config=slurm_config, workspace=os.getcwd())
+    runner.run(
+        processor=processor,  # processor is now optional and can be None
+        input_path=jsonl_path,
+        output_path=output_path
     )
     
     print(f"Results saved to: {output_path}")
@@ -81,5 +92,5 @@ if __name__ == '__main__':
     ensure_results_dir()
     
     create_example_csv_data()
-    print("Processing CSV data...")
-    process_csv_data() 
+    print("Processing CSV data with JSONL-first approach...")
+    process_csv_with_jsonl() 

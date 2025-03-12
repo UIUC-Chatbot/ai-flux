@@ -1,13 +1,16 @@
-"""Core components for AI-Flux."""
+"""Core functionality for AI-Flux."""
 
 from .processor import BaseProcessor
+from .config import Config, ModelConfig, ModelParameters, SlurmConfig
+from .config_manager import ConfigManager
 from .client import LLMClient
-from .config import Config, ModelConfig, SlurmConfig
 
 __all__ = [
     'BaseProcessor',
-    'LLMClient',
     'Config',
     'ModelConfig',
-    'SlurmConfig'
+    'ModelParameters',
+    'SlurmConfig',
+    'ConfigManager',
+    'LLMClient',
 ] 
