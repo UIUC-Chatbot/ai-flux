@@ -11,7 +11,7 @@ parameters:
   temperature: 0.7
   top_p: 0.9
   max_tokens: 2048
-  stop_sequences: ["<end_of_turn>"]  # Default stop sequence
+  stop_sequences: ["[INST]", "[/INST]"]  # Default stop sequence
 
 system:
   prompt: "You are a helpful AI assistant. You are direct, accurate, and helpful in your responses."
