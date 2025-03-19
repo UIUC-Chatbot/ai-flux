@@ -31,7 +31,7 @@ model_info:
 
 requirements:
   min_gpu_memory: "16GB"
-  recommended_gpu: "RTX 4090 or better"
+  recommended_gpu: "A100"
   context_window: 32768  # 32k context window
   cuda_version: ">=11.8"
   cpu_threads: 8

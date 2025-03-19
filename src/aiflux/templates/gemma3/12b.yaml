@@ -25,7 +25,7 @@ validation:
 # Resource Requirements
 requirements:
   min_gpu_memory: "16GB"  # Minimum required for safe operation
-  recommended_gpu: "RTX 4090"
+  recommended_gpu: "A100"
   cuda_version: ">=11.7"
   cpu_threads: 6
   gpu_memory_utilization: 0.9 
