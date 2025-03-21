@@ -176,9 +176,9 @@ job_id = runner.run(
 | 20-40B | A100 (80GB) | 4-6 | 80G |
 | 40-70B | A100 (80GB) | 2-3 | 80G |
 
-### Large Model High-Performance Configuration
+### Large Model Configuration on Single GPU
 
-When running large models (70B+) with increased batch size on A100 (80GB):
+When running large models (70B+) on a single A100 (80GB) GPU:
 
 ```python
 # Using code arguments
@@ -207,9 +207,9 @@ job_id = runner.run(
 # SLURM_PARTITION=a100
 ```
 
-### Multi-GPU Configuration
+### Multi-GPU Configuration for Increased Throughput
 
-For extremely large models or maximum throughput, you can leverage multiple GPUs:
+For large models with higher throughput, you can leverage multiple GPUs:
 
 ```python
 # Multi-GPU setup for maximum performance
