@@ -2,91 +2,143 @@
 
 This directory contains example scripts demonstrating how to use AI-Flux for batch processing with LLMs on HPC systems.
 
-## Available Examples
+## JSONL-First Examples
 
-1. **Direct JSONL Processing**: [`jsonl_slurm_direct.py`](jsonl_slurm_direct.py) - Core workflow submitting JSONL directly to SLURM
-2. **CSV to JSONL**: [`csv_jsonl_example.py`](csv_jsonl_example.py) - Convert CSV data to JSONL format
-3. **JSON to JSONL**: [`json_jsonl_example.py`](json_jsonl_example.py) - Convert JSON data to JSONL format
-4. **Directory to JSONL**: [`directory_jsonl_example.py`](directory_jsonl_example.py) - Convert directory contents to JSONL
+The following examples demonstrate the JSONL-first architecture that simplifies batch processing by:
+1. Working directly with JSONL files in OpenAI-compatible format
+2. Separating format conversion as an optional pre-processing step
+3. Processing JSONL files directly with no input handlers needed
 
-## Configuration Parameters
+### 1. Direct JSONL Processing (`jsonl_slurm_direct.py`)
 
-All examples accept the following configuration parameters, which follow the priority system (code parameters > environment variables > defaults):
-
-### Core Parameters
-
-| Parameter | Type | Example | Description | Priority |
-|-----------|------|---------|-------------|----------|
-| `input_path` | string | `"data/input.jsonl"` | Path to input JSONL file | Required |
-| `output_path` | string | `"results/output.json"` | Path for results | Required |
-| `model` | string | `"llama3.2:3b"` | Model to use (format: `model:size`) | Code > ENV > Default |
-| `batch_size` | int | `4` | Number of prompts to process in parallel | Code > ENV > Default |
-| `max_retries` | int | `3` | Number of retries for failed requests | Code > ENV > Default |
-| `retry_delay` | float | `1.0` | Delay between retries (seconds) | Code > ENV > Default |
-
-### SLURM Parameters
-
-| Parameter | Type | Example | Description | Priority |
-|-----------|------|---------|-------------|----------|
-| `account` | string | `"myaccount"` | SLURM account name | Required |
-| `partition` | string | `"a100"` | GPU partition | Code > ENV > Default |
-| `time` | string | `"01:00:00"` | Job time limit (HH:MM:SS) | Code > ENV > Default |
-| `mem` | string | `"16G"` | Memory allocation | Code > ENV > Default |
-| `gpus_per_node` | int | `1` | GPUs per node | Code > ENV > Default |
-| `nodes` | int | `1` | Number of nodes | Code > ENV > Default |
-| `cpus_per_task` | int | `4` | CPUs per task | Code > ENV > Default |
-
-### Model Parameters
-
-| Parameter | Type | Example | Description | Priority |
-|-----------|------|---------|-------------|----------|
-| `temperature` | float | `0.7` | Sampling temperature | Code > ENV > Default |
-| `top_p` | float | `0.9` | Top-p sampling parameter | Code > ENV > Default |
-| `top_k` | int | `40` | Top-k sampling parameter | Code > ENV > Default |
-| `max_tokens` | int | `2048` | Maximum tokens to generate | Code > ENV > Default |
-| `stop_sequences` | list | `["###"]` | Stop sequences | Code > ENV > Default |
-
-## Setting Parameters
-
-Parameters can be specified in three ways, following the priority system:
-
-### 1. Direct in Code (Highest Priority)
+Demonstrates the core workflow - submitting JSONL files directly to SLURM:
 
 ```python
-slurm_runner.run(
-    input_path="data/prompts.jsonl",
-    output_path="results/output.json",
-    model="llama3.2:3b",
-    batch_size=4,
-    temperature=0.5,
-    max_tokens=4096
+# Setup SLURM configuration
+config = Config()
+slurm_config = config.get_slurm_config()
+slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+slurm_config.time = "01:00:00"
+slurm_config.mem = "16G"
+slurm_config.gpus_per_node = 1
+
+# Create runner with configuration
+slurm_runner = SlurmRunner(
+    config=slurm_config,
+    workspace=os.getcwd()
+)
+
+# Submit job - this is the core functionality
+job_id = slurm_runner.run(
+    input_path="data/prompts.jsonl",     # Direct JSONL input
+    output_path="results/output.json",   # Path for results
+    model="llama3.2:3b",                 # Model to use
+    batch_size=4                         # Items to process in parallel
 )
 ```
 
-### 2. Via Environment Variables (.env file)
+### 2. CSV to JSONL Processing (`csv_jsonl_example.py`)
 
-```bash
-# In .env file
-MODEL_NAME=llama3.2:3b
-BATCH_SIZE=4
-TEMPERATURE=0.5
-MAX_TOKENS=4096
+Demonstrates converting a CSV file to JSONL format and then processing it:
+
+```python
+# Convert CSV to JSONL format
+conversion_result = csv_to_jsonl(
+    input_path='data/papers.csv',
+    output_path=jsonl_path,
+    prompt_template="Please summarize this paper: Title: {title}, Abstract: {abstract}",
+    system_prompt="You are a research assistant specialized in summarizing papers.",
+    model="llama3.2:3b"
+)
+
+# Setup SLURM configuration
+slurm_config = config.get_slurm_config()
+slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+slurm_config.time = "02:00:00"
+
+# Run on SLURM with the JSONL file directly
+runner = SlurmRunner(config=slurm_config, workspace=os.getcwd())
+runner.run(
+    input_path=jsonl_path,
+    output_path=output_path,
+    model="llama3.2:3b",
+    batch_size=4
+)
 ```
 
-### 3. Defaults (Lowest Priority)
+### 3. JSON to JSONL Processing (`json_jsonl_example.py`)
 
-Default values are used if no parameter is specified in code or environment.
+Demonstrates converting a JSON file to JSONL format and then processing it:
 
-## Running Examples
+```python
+# Convert JSON to JSONL first
+conversion_result = json_to_jsonl(
+    input_path=input_path,
+    output_path=jsonl_path,
+    model="llama3.2:3b"
+)
+
+# Setup SLURM configuration and runner
+slurm_config = config.get_slurm_config()
+slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
+runner = SlurmRunner(config=slurm_config, workspace=os.getcwd())
+
+# Run with JSONL file directly
+runner.run(
+    input_path=jsonl_path,
+    output_path=output_path,
+    model="llama3.2:3b",
+    batch_size=8
+)
+```
+
+### 4. Directory to JSONL Processing (`directory_jsonl_example.py`)
+
+Demonstrates converting a directory of files to JSONL format and then processing them:
+
+```python
+# Convert directory contents to JSONL
+conversion_result = directory_to_jsonl(
+    input_path=input_dir,
+    output_path=jsonl_path,
+    file_pattern="*.txt",  # Only process .txt files
+    recursive=True,  # Include subdirectories
+    prompt_template="Please analyze this file: {filename}\nContent: {content}",
+    system_prompt="You are a document analysis assistant.",
+    model="llama3.2:3b"
+)
+
+# Process with JSONL-first approach
+runner.run(
+    input_path=jsonl_path,
+    output_path=output_path,
+    model="llama3.2:3b",
+    batch_size=4
+)
+```
+
+## JSONL Format
+
+AI-Flux uses the OpenAI Batch API specification for its JSONL files:
+
+```jsonl
+{"custom_id":"request1","method":"POST","url":"/v1/chat/completions","body":{"model":"llama3.2:3b","messages":[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"What is quantum computing?"}],"temperature":0.7,"max_tokens":500}}
+{"custom_id":"request2","method":"POST","url":"/v1/chat/completions","body":{"model":"llama3.2:3b","messages":[{"role":"system","content":"You are a helpful assistant"},{"role":"user","content":"What is machine learning?"}],"temperature":0.7,"max_tokens":500}}
+```
+
+## Running the Examples
 
 1. Ensure you have set up your environment variables in `.env`
 2. Run an example:
    ```bash
-   conda activate aiflux
+   # Run the core JSONL workflow
    python examples/jsonl_slurm_direct.py
+   
+   # Run a converter example
+   python examples/csv_jsonl_example.py
    ```
 
-Each example script will create sample data files if they don't exist and then submit a SLURM job for processing.
+Each example script will create sample data files if they don't exist and then submit a SLURM job for processing. 
 
 ## Further Documentation
 
