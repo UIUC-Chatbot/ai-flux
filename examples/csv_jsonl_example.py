@@ -20,7 +20,7 @@ def process_csv_with_jsonl():
     """Example of processing a CSV file using the JSONL-first approach."""
     # Load model configuration
     config = Config()
-    model_config = config.load_model_config("llama3.2", "3b")
+    model_config = config.load_model_config("phi3", "mini")
     
     # Define a system prompt for context
     system_prompt = "You are a research assistant specializing in summarizing scientific papers."
