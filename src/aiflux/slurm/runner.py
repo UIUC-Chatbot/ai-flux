@@ -82,6 +82,16 @@ class SlurmRunner:
         # Use workspace if provided, otherwise use the default
         workspace_path = Path(workspace) if workspace else self.workspace
         
+        # Calculate GPU configuration values
+        cuda_visible_devices = '0'  # Default to single GPU
+        ollama_sched_spread = '0'   # Default to no spread
+        
+        # Update values if multiple GPUs are requested
+        if self.slurm_config.gpus_per_node > 1:
+            # Generate comma-separated list of GPU indices (0,1,2,...)
+            cuda_visible_devices = ','.join(str(i) for i in range(self.slurm_config.gpus_per_node))
+            ollama_sched_spread = '1'
+        
         # Use config manager to get environment with proper precedence
         # Map slurm_config fields to their corresponding environment variables
         overrides = {
@@ -115,6 +125,14 @@ class SlurmRunner:
             'APPTAINER_CACHEDIR': str(workspace_path / "tmp" / "cache"),
             'SINGULARITY_TMPDIR': str(workspace_path / "tmp"),
             'SINGULARITY_CACHEDIR': str(workspace_path / "tmp" / "cache"),
+            
+            # Add Ollama paths
+            'OLLAMA_HOME': str(self.workspace / ".ollama"),
+            'OLLAMA_MODELS': str(self.workspace / ".ollama" / "models"),
+            
+            # Add pre-calculated GPU configuration
+            'CUDA_VISIBLE_DEVICES': cuda_visible_devices,
+            'OLLAMA_SCHED_SPREAD': ollama_sched_spread,
         }
         
         # Get base environment
@@ -122,10 +140,6 @@ class SlurmRunner:
         
         # Add all overrides
         env.update(overrides)
-        
-        # Ensure paths exist for OLLAMA
-        env['OLLAMA_HOME'] = str(self.workspace / ".ollama")
-        env['OLLAMA_MODELS'] = str(self.workspace / ".ollama" / "models")
         
         return env
     
@@ -237,10 +251,20 @@ class SlurmRunner:
         )
         env['BATCH_SIZE'] = str(batch_size)
         
+        # Get save_frequency using config manager priority system
+        save_frequency = self.config_manager.get_parameter(
+            param_name="save_frequency",
+            code_value=kwargs.get('save_frequency'),
+            obj=processor,
+            env_var="SAVE_FREQUENCY",
+            default="50"
+        )
+        env['SAVE_FREQUENCY'] = str(save_frequency)
+        
         # Add additional parameters from kwargs through config manager
         for key, value in kwargs.items():
-            # Skip 'model' and 'batch_size' which are already handled
-            if key in ['model', 'batch_size']:
+            # Skip parameters that are already handled
+            if key in ['model', 'batch_size', 'save_frequency']:
                 continue
                 
             # Use config manager to get the value with proper priority
@@ -314,6 +338,8 @@ class SlurmRunner:
             "    --env OLLAMA_MODELS=$OLLAMA_MODELS \\",
             "    --env OLLAMA_HOME=$OLLAMA_HOME \\",
             "    --env OLLAMA_INSECURE=true \\",
+            "    --env CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES \\",
+            "    --env OLLAMA_SCHED_SPREAD=$OLLAMA_SCHED_SPREAD \\",
             "    --env CURL_CA_BUNDLE= \\",
             "    --env SSL_CERT_FILE= \\",
             "    --bind $DATA_INPUT_DIR:/app/data/input,$DATA_OUTPUT_DIR:/app/data/output,$MODELS_DIR:/app/models,$LOGS_DIR:/app/logs,$OLLAMA_HOME:$OLLAMA_HOME \\",

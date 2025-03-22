@@ -139,3 +139,9 @@ AI-Flux uses the OpenAI Batch API specification for its JSONL files:
    ```
 
 Each example script will create sample data files if they don't exist and then submit a SLURM job for processing. 
+
+## Further Documentation
+
+For complete documentation of all configuration options, see:
+- [Configuration Guide](../docs/CONFIGURATION.md)
+- [Models Guide](../docs/MODELS.md) 
