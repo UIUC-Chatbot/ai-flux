@@ -27,7 +27,7 @@ def process_directory_with_jsonl():
     slurm_config.account = os.getenv('SLURM_ACCOUNT', '')
     slurm_config.time = "01:00:00"  # 1 hour
     slurm_config.mem = "16G"        # 16GB memory
-    slurm_config.gpus_per_node = 1  # 1 GPU
+    slurm_config.gpus_per_node = 2  # 1 GPU
     slurm_config.partition = "a100"  # A100 GPU partition
     
     print(f"Using SLURM account: {slurm_config.account}")
@@ -62,7 +62,7 @@ def process_directory_with_jsonl():
             "Provide a summary and extract key information."
         ),
         system_prompt="You are a document analysis assistant specialized in extracting information from text files.",
-        model="llama3.2:3b"
+        model="gemma3:27b"
     )
     
     print(f"\n✅ Converted directory contents to JSONL: {jsonl_path}")
