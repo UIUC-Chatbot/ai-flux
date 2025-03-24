@@ -1,9 +1,9 @@
-# DeepSeek R1 671B Configuration
-name: "deepseek-r1:671b"
+# DeepSeek V2 236B Configuration
+name: "deepseek-v2:236b"
 
 resources:
   gpu_layers: 128
-  gpu_memory: "400GB"
+  gpu_memory: "140GB"
   batch_size: 1
   max_concurrent: 1
 
@@ -11,7 +11,7 @@ parameters:
   temperature: 0.7
   top_p: 0.9
   max_tokens: 2048
-  stop_sequences: ["<|begin▁of▁sentence|>", "<|end▁of▁sentence|>"]  # Default stop sequences from Ollama
+  stop_sequences: ["User:", "Assistant:"]  # Default stop sequences from Ollama
 
 system:
   prompt: "You are a helpful AI assistant. You are direct, accurate, and helpful in your responses."
@@ -24,8 +24,8 @@ validation:
 
 # Resource Requirements
 requirements:
-  min_gpu_memory: "400GB"  # Minimum required for safe operation
+  min_gpu_memory: "140GB"  # Minimum required for safe operation
   recommended_gpu: "H100"
   cuda_version: ">=12.0"
-  cpu_threads: 16
+  cpu_threads: 12
   gpu_memory_utilization: 0.9 
